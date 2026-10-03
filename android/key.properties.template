@@ -1,0 +1,12 @@
+﻿# ⚠️ DO NOT COMMIT THIS FILE TO GIT
+# Add android/key.properties to .gitignore
+#
+# How to generate a keystore:
+#   keytool -genkey -v -keystore tam-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias tam-key
+#
+# Then fill in the values below and rename this file to key.properties:
+
+storePassword=YOUR_STORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=tam-key
+storeFile=../tam-release.jks

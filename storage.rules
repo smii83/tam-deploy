@@ -1,0 +1,32 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuth() && firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid));
+    }
+
+    function isSubscribed() {
+      return isAuth() && (
+        isAdmin() ||
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.is_subscribed == true
+      );
+    }
+
+    // Videos: read if subscribed or admin, write admin only
+    match /videos/{allPaths=**} {
+      allow read: if isSubscribed();
+      allow write: if isAdmin();
+    }
+
+    // PDFs: read if subscribed or admin, write admin only
+    match /pdfs/{allPaths=**} {
+      allow read: if isSubscribed();
+      allow write: if isAdmin();
+    }
+  }
+}

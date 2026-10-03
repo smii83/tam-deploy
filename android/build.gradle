@@ -1,0 +1,37 @@
+buildscript {
+    ext.kotlin_version = "2.1.0"
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:8.7.0"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0"
+        classpath "com.google.gms:google-services:4.4.0"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+// ── Namespace fix for old Flutter plugins that don't declare namespace ──
+// Required for AGP 8.0+ — plugins like flutter_windowmanager don't have namespace
+subprojects {
+    afterEvaluate { proj ->
+        if (proj.name == 'app') return
+        if (proj.plugins.hasPlugin('com.android.library')) {
+            def ns = proj.android.namespace
+            if (ns == null || ns.isEmpty()) {
+                proj.android.namespace = proj.group.toString()
+            }
+        }
+    }
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

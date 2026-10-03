@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TAM Admin – لوحة التحكم</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+  <!-- LOGIN SCREEN -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-bg">
+      <div class="orb orb1"></div>
+      <div class="orb orb2"></div>
+      <div class="orb orb3"></div>
+    </div>
+    <div class="login-card">
+      <div class="login-logo">
+        <h1>TAM Admin</h1>
+      </div>
+      <div class="form-group">
+        <label>البريد الإلكتروني</label>
+        <input type="email" id="loginEmail" placeholder="admin@tam.com" />
+      </div>
+      <div class="form-group">
+        <label>كلمة المرور</label>
+        <input type="password" id="loginPassword" placeholder="••••••••" />
+      </div>
+      <div id="loginError" class="login-error hidden"></div>
+      <button class="btn-primary btn-full" onclick="doLogin()">
+        <span id="loginBtnText">تسجيل الدخول</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- MAIN DASHBOARD -->
+  <div id="dashboard" class="dashboard hidden">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <span class="logo-text">TAM Admin</span>
+        </div>
+        <button class="sidebar-toggle" onclick="toggleSidebar()">&#9776;</button>
+      </div>
+      <nav class="sidebar-nav">
+        <a class="nav-item active" onclick="showSection('overview')" data-section="overview">
+          <span class="nav-icon">📊</span><span class="nav-label">نظرة عامة</span>
+        </a>
+        <a class="nav-item" onclick="showSection('grades')" data-section="grades">
+          <span class="nav-icon">🏫</span><span class="nav-label">الصفوف الدراسية</span>
+        </a>
+        <a class="nav-item" onclick="showSection('subjects')" data-section="subjects">
+          <span class="nav-icon">📚</span><span class="nav-label">المواد الدراسية</span>
+        </a>
+        <a class="nav-item" onclick="showSection('lessons')" data-section="lessons">
+          <span class="nav-icon">🎬</span><span class="nav-label">الدروس</span>
+        </a>
+        <a class="nav-item" onclick="showSection('pdfs')" data-section="pdfs">
+          <span class="nav-icon">📄</span><span class="nav-label">الملفات PDF</span>
+        </a>
+        <a class="nav-item" onclick="showSection('students')" data-section="students">
+          <span class="nav-icon">👥</span><span class="nav-label">الطلاب</span>
+        </a>
+        <a class="nav-item" onclick="showSection('subscriptions')" data-section="subscriptions">
+          <span class="nav-icon">💰</span><span class="nav-label">الاشتراكات</span>
+        </a>
+        <a class="nav-item" onclick="showSection('settings')" data-section="settings">
+          <span class="nav-icon">⚙️</span><span class="nav-label">الإعدادات</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <button class="btn-logout" onclick="doLogout()">🚪 تسجيل الخروج</button>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+      <header class="topbar">
+        <div class="topbar-right">
+          <h2 id="pageTitle">نظرة عامة</h2>
+        </div>
+        <div class="topbar-left">
+          <div class="admin-badge">
+            <span class="admin-avatar">👤</span>
+            <span id="adminName">المشرف</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- OVERVIEW SECTION -->
+      <section id="section-overview" class="section active">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon" style="background: linear-gradient(135deg,#7c3aed,#a855f7)">🏫</div>
+            <div class="stat-info">
+              <span class="stat-num" id="stat-grades">—</span>
+              <span class="stat-label">صف دراسي</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background: linear-gradient(135deg,#0ea5e9,#38bdf8)">📚</div>
+            <div class="stat-info">
+              <span class="stat-num" id="stat-subjects">—</span>
+              <span class="stat-label">مادة دراسية</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background: linear-gradient(135deg,#10b981,#34d399)">🎬</div>
+            <div class="stat-info">
+              <span class="stat-num" id="stat-lessons">—</span>
+              <span class="stat-label">درس</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="background: linear-gradient(135deg,#f59e0b,#fbbf24)">👥</div>
+            <div class="stat-info">
+              <span class="stat-num" id="stat-students">—</span>
+              <span class="stat-label">طالب مسجل</span>
+            </div>
+          </div>
+        </div>
+        <div class="recent-box">
+          <h3>آخر الطلاب المسجلين</h3>
+          <div id="recentStudents" class="table-wrap">
+            <p class="empty-msg">جارٍ التحميل...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- GRADES SECTION -->
+      <section id="section-grades" class="section">
+        <div class="section-toolbar">
+          <h3>إدارة الصفوف الدراسية (6 – 12)</h3>
+          <button class="btn-primary" onclick="seedKuwaitTracks()" style="background: linear-gradient(135deg, #6C63FF, #3F36E2);">✨ مزامنة نظام المسارات الجديد (الكويت 2026)</button>
+        </div>
+        <div id="gradesList" class="grades-grid">
+          <p class="empty-msg">جارٍ التحميل...</p>
+        </div>
+      </section>
+
+      <!-- SUBJECTS SECTION -->
+      <section id="section-subjects" class="section">
+        <div class="section-toolbar">
+          <h3>المواد الدراسية</h3>
+          <button class="btn-primary" onclick="openAddSubjectModal()">+ إضافة مادة</button>
+        </div>
+        <div class="filter-row">
+          <label>اختر الصف:</label>
+          <select id="subjectGradeFilter" onchange="loadSubjects()">
+            <option value="">— كل الصفوف —</option>
+          </select>
+        </div>
+        <div id="subjectsList" class="table-wrap">
+          <p class="empty-msg">اختر صفاً لعرض موادّه</p>
+        </div>
+      </section>
+
+      <!-- LESSONS SECTION -->
+      <section id="section-lessons" class="section">
+        <div class="section-toolbar">
+          <h3>الدروس</h3>
+          <button class="btn-primary" onclick="openAddLessonModal()">+ إضافة درس</button>
+        </div>
+        <div class="filter-row">
+          <label>الصف:</label>
+          <select id="lessonGradeFilter" onchange="loadLessonSubjects()">
+            <option value="">— اختر الصف —</option>
+          </select>
+          <label>المادة:</label>
+          <select id="lessonSubjectFilter" onchange="loadLessons()">
+            <option value="">— اختر المادة —</option>
+          </select>
+        </div>
+        <div id="lessonsList" class="table-wrap">
+          <p class="empty-msg">اختر صفاً ومادة لعرض الدروس</p>
+        </div>
+      </section>
+
+      <!-- PDFs SECTION -->
+      <section id="section-pdfs" class="section">
+        <div class="section-toolbar">
+          <h3>الملفات PDF</h3>
+          <button class="btn-primary" onclick="openAddPdfModal()">+ رفع PDF</button>
+        </div>
+        <div class="filter-row">
+          <label>الصف:</label>
+          <select id="pdfGradeFilter" onchange="loadPdfSubjects()">
+            <option value="">— اختر الصف —</option>
+          </select>
+          <label>المادة:</label>
+          <select id="pdfSubjectFilter" onchange="loadPdfs()">
+            <option value="">— اختر المادة —</option>
+          </select>
+        </div>
+        <div id="pdfsList" class="table-wrap">
+          <p class="empty-msg">اختر صفاً ومادة لعرض الملفات</p>
+        </div>
+      </section>
+
+      <!-- STUDENTS SECTION -->
+      <section id="section-students" class="section">
+        <div class="section-toolbar">
+          <h3>الطلاب</h3>
+          <div style="display:flex;gap:0.8rem;align-items:center">
+            <input type="text" class="search-input" id="studentSearch" placeholder="بحث باسم أو بريد..."
+              oninput="searchStudents()" />
+            <button class="btn-primary" onclick="openStudentModal()">+ إضافة طالب</button>
+          </div>
+        </div>
+        <div id="studentsList" class="table-wrap">
+          <p class="empty-msg">جارٍ التحميل...</p>
+        </div>
+      </section>
+
+      <!-- SUBSCRIPTIONS SECTION -->
+      <section id="section-subscriptions" class="section">
+        <div class="section-toolbar">
+          <h3>الاشتراكات</h3>
+        </div>
+        <div id="subscriptionsList" class="table-wrap">
+          <p class="empty-msg">جارٍ التحميل...</p>
+        </div>
+      </section>
+
+      <!-- SETTINGS SECTION -->
+      <section id="section-settings" class="section">
+        <div class="section-toolbar">
+          <h3>الإعدادات</h3>
+        </div>
+        <div class="settings-grid">
+          <div class="settings-card">
+            <h4>🔒 تغيير كلمة المرور</h4>
+            <div class="form-group">
+              <label>كلمة المرور الجديدة</label>
+              <input type="password" id="newPassword" placeholder="••••••••" />
+            </div>
+            <div class="form-group">
+              <label>تأكيد كلمة المرور</label>
+              <input type="password" id="confirmPassword" placeholder="••••••••" />
+            </div>
+            <button class="btn-primary" onclick="changePassword()">حفظ كلمة المرور</button>
+          </div>
+          <div class="settings-card">
+            <h4>🔥 Firebase Project</h4>
+            <div class="form-group">
+              <label>Project ID</label>
+              <input type="text" id="currentPbUrl" value="tam-app-fd30f" readonly />
+            </div>
+            <p class="hint-text">البيانات محفوظة في Firebase Firestore — لا حاجة لسيرفر محلي.</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ===== MODALS ===== -->
+
+  <!-- ADD/EDIT SUBJECT MODAL -->
+  <div id="subjectModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="subjectModalTitle">إضافة مادة جديدة</h3>
+        <button class="modal-close" onclick="closeModal('subjectModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="subjectId" />
+        <div class="form-group">
+          <label>الصف الدراسي</label>
+          <select id="subjectGradeId">
+            <option value="">— اختر الصف —</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>اسم المادة (عربي)</label>
+            <input type="text" id="subjectNameAr" placeholder="مثال: الرياضيات" />
+          </div>
+          <div class="form-group">
+            <label>اسم المادة (إنجليزي)</label>
+            <input type="text" id="subjectNameEn" placeholder="e.g. Mathematics" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>الأيقونة (emoji)</label>
+            <input type="text" id="subjectIcon" placeholder="📘" maxlength="4" />
+          </div>
+          <div class="form-group">
+            <label>اللون</label>
+            <input type="color" id="subjectColor" value="#7c3aed" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>الترتيب</label>
+          <input type="number" id="subjectOrder" value="1" min="1" />
+        </div>
+        <div class="form-check">
+          <input type="checkbox" id="subjectVisible" checked />
+          <label for="subjectVisible">ظاهرة للطلاب</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('subjectModal')">إلغاء</button>
+        <button class="btn-primary" onclick="saveSubject()">حفظ المادة</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD/EDIT LESSON MODAL -->
+  <div id="lessonModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="lessonModalTitle">إضافة درس جديد</h3>
+        <button class="modal-close" onclick="closeModal('lessonModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="lessonId" />
+        <div class="form-row">
+          <div class="form-group">
+            <label>عنوان الدرس (عربي)</label>
+            <input type="text" id="lessonTitleAr" placeholder="عنوان الدرس" />
+          </div>
+          <div class="form-group">
+            <label>عنوان الدرس (إنجليزي)</label>
+            <input type="text" id="lessonTitleEn" placeholder="Lesson title" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>رابط الفيديو (YouTube)</label>
+          <input type="url" id="lessonVideoUrl" placeholder="https://youtube.com/watch?v=..." />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>مدة الدرس (دقائق)</label>
+            <input type="number" id="lessonDuration" value="30" min="1" />
+          </div>
+          <div class="form-group">
+            <label>الترتيب</label>
+            <input type="number" id="lessonOrder" value="1" min="1" />
+          </div>
+        </div>
+        <div class="form-check">
+          <input type="checkbox" id="lessonActive" checked />
+          <label for="lessonActive">مفعّل للطلاب</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('lessonModal')">إلغاء</button>
+        <button class="btn-primary" onclick="saveLesson()">حفظ الدرس</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD PDF MODAL -->
+  <div id="pdfModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>رفع ملف PDF</h3>
+        <button class="modal-close" onclick="closeModal('pdfModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="pdfId" />
+        <div class="form-row">
+          <div class="form-group">
+            <label>العنوان (عربي)</label>
+            <input type="text" id="pdfTitleAr" placeholder="ملخص الفصل الأول" />
+          </div>
+          <div class="form-group">
+            <label>العنوان (إنجليزي)</label>
+            <input type="text" id="pdfTitleEn" placeholder="Chapter 1 Summary" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>النوع</label>
+          <select id="pdfType">
+            <option value="summary">ملخص</option>
+            <option value="exam_answer">حل امتحان</option>
+            <option value="worksheet">ورقة عمل</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>ملف PDF</label>
+          <div class="file-drop" id="fileDropZone" onclick="document.getElementById('pdfFileInput').click()">
+            <span>📤 اسحب الملف هنا أو انقر للاختيار</span>
+            <input type="file" id="pdfFileInput" accept=".pdf" style="display:none" onchange="onFileSelected(this)" />
+          </div>
+          <div id="fileSelectedName" class="hint-text"></div>
+        </div>
+        <div class="form-check">
+          <input type="checkbox" id="pdfActive" checked />
+          <label for="pdfActive">مرئي للطلاب</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('pdfModal')">إلغاء</button>
+        <button class="btn-primary" onclick="savePdf()">رفع الملف</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- ADD SUBSCRIPTION MODAL -->
+  <div id="addSubModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>إضافة اشتراك جديد</h3>
+        <button class="modal-close" onclick="closeModal('addSubModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>البريد الإلكتروني للطالب</label>
+          <input type="email" id="subEmail" placeholder="student@email.com" />
+        </div>
+        <div class="form-group">
+          <label>Firebase UID (اختياري – لربط الاشتراك بالحساب)</label>
+          <input type="text" id="subFirebaseUid" placeholder="UID من Firebase Auth" style="direction:ltr" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>نوع الخطة</label>
+            <select id="subPlan">
+              <option value="monthly">شهري</option>
+              <option value="quarterly">ربع سنوي</option>
+              <option value="yearly">سنوي</option>
+              <option value="custom">مخصص</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>مدة الاشتراك (أيام)</label>
+            <input type="number" id="subDays" value="30" min="1" />
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('addSubModal')">إلغاء</button>
+        <button class="btn-primary" onclick="saveSubscription()">تفعيل الاشتراك ✅</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STUDENT MODAL (ADD / EDIT) -->
+  <div id="studentModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="studentModalTitle">إضافة طالب جديد</h3>
+        <button class="modal-close" onclick="closeModal('studentModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="studentId" />
+        <div class="form-group">
+          <label>الاسم بالكامل</label>
+          <input type="text" id="studentName" placeholder="طالب تجريبي" />
+        </div>
+        <div class="form-group">
+          <label>البريد الإلكتروني</label>
+          <input type="email" id="studentEmail" placeholder="student@email.com" />
+        </div>
+        <div class="form-group">
+          <label>كلمة المرور (الباسورد)</label>
+          <input type="text" id="studentPassword" placeholder="أدخل كلمة مرور الطالب" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>الصف الدراسي</label>
+            <select id="studentGrade">
+              <option value="11">الصف 11 - الحادي عشر</option>
+              <option value="12" selected>الصف 12 - الثاني عشر</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>الشعبة</label>
+            <select id="studentSection">
+              <option value="scientific" selected>علمي</option>
+              <option value="literary">أدبي</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-check" id="studentSubscribedContainer" style="margin-top:0.8rem">
+          <input type="checkbox" id="studentSubscribed" />
+          <label for="studentSubscribed">تفعيل الاشتراك تلقائياً لهذا الطالب</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('studentModal')">إلغاء</button>
+        <button class="btn-primary" id="studentModalBtn" onclick="saveStudent()">حفظ الطالب ✅</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT SUBSCRIPTION DURATION MODAL -->
+  <div id="editSubDurationModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>تعديل مدة الاشتراك</h3>
+        <button class="modal-close" onclick="closeModal('editSubDurationModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editSubStudentId" />
+        <input type="hidden" id="editSubStudentEmail" />
+        <input type="hidden" id="editSubStudentUid" />
+        
+        <div class="form-group">
+          <label>البريد الإلكتروني للطالب</label>
+          <input type="text" id="editSubEmailDisplay" readonly style="opacity:0.75" />
+        </div>
+        
+        <div class="form-group">
+          <label>الحالة الحالية للاشتراك</label>
+          <div id="editSubStatusDisplay" style="font-weight:bold;margin-bottom:0.5rem"></div>
+        </div>
+
+        <div class="form-group">
+          <label>تاريخ الانتهاء الجديد</label>
+          <input type="date" id="editSubEndDate" />
+        </div>
+
+        <div class="hint-text" style="margin-top:0.5rem;color:var(--text-muted);font-size:0.8rem">
+          اختر تاريخاً مستقبلياً لتمديد/تفعيل الاشتراك، أو تاريخاً سابقاً لإنهائه.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('editSubDurationModal')">إلغاء</button>
+        <button class="btn-primary" onclick="saveSubscriptionDuration()">حفظ التعديل ✅</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+  <script src="app.js?v=firebase1"></script>
+</body>
+
+</html>

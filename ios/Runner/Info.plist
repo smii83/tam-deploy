@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>$(DEVELOPMENT_LANGUAGE)</string>
+    <key>CFBundleDisplayName</key><string>منصة تم</string>
+    <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleName</key><string>tam_app</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>$(FLUTTER_BUILD_NAME)</string>
+    <key>CFBundleVersion</key><string>$(FLUTTER_BUILD_NUMBER)</string>
+
+    <!-- ── Permissions ──────────────────────────────────────────────── -->
+    <key>NSCameraUsageDescription</key>
+    <string>نستخدم الكاميرا لتصوير الأسئلة وحلها بالذكاء الاصطناعي</string>
+
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>نحتاج الوصول للصور لرفع أسئلة وحلها بالذكاء الاصطناعي</string>
+
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>نحتاج إذنك لحفظ الصور في مكتبتك</string>
+
+    <key>NSMicrophoneUsageDescription</key>
+    <string>نستخدم الميكروفون عند تصوير الفيديو فقط</string>
+
+    <!-- ── App Store Export Compliance ───────────────────────────────── -->
+    <!-- Set to false: the app uses Apple's built-in encryption (HTTPS/TLS) only -->
+    <key>ITSAppUsesNonExemptEncryption</key><false/>
+
+    <!-- ── UI ──────────────────────────────────────────────────────── -->
+    <key>UILaunchStoryboardName</key><string>LaunchScreen</string>
+    <key>UIMainStoryboardFile</key><string>Main</string>
+    <key>UIStatusBarStyle</key><string>UIStatusBarStyleDefault</string>
+
+    <!-- ── Portrait Only ───────────────────────────────────────────── -->
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+    </array>
+
+    <!-- ── App Transport Security ──────────────────────────────────── -->
+    <key>NSAppTransportSecurity</key>
+    <dict><key>NSAllowsArbitraryLoads</key><false/></dict>
+
+    <!-- ── Google Sign-In URL Scheme ──────────────────────────────── -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.googleusercontent.apps.82581349835-a7th6c7anb8tboo4i65jt6femfldr1df</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- ── Background Modes (FCM Push Notifications) ─────────────── -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+        <string>remote-notification</string>
+    </array>
+
+    <!-- ── Scene Manifest (FlutterSceneDelegate) ──────────────────── -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+        <key>UISceneConfigurations</key>
+        <dict>
+            <key>UIWindowSceneSessionRoleApplication</key>
+            <array>
+                <dict>
+                    <key>UISceneConfigurationName</key>
+                    <string>Default Configuration</string>
+                    <key>UISceneDelegateClassName</key>
+                    <string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+                </dict>
+            </array>
+        </dict>
+    </dict>
+</dict>
+</plist>

@@ -1,0 +1,14 @@
+خطوط Cairo — يجب تحميلها وإضافتها هنا:
+
+1. اذهب إلى: https://fonts.google.com/specimen/Cairo
+2. اضغط "Download family"
+3. ضع هذه الملفات في مجلد assets/fonts/:
+   - Cairo-Regular.ttf     (weight 400)
+   - Cairo-Medium.ttf      (weight 500)
+   - Cairo-SemiBold.ttf    (weight 600)
+   - Cairo-Bold.ttf        (weight 700)
+   - Cairo-Black.ttf       (weight 900)
+
+أو استخدم هذا الأمر في Terminal:
+flutter pub add google_fonts
+ثم استخدم GoogleFonts.cairo() بدلاً من fontFamily: 'Cairo'
