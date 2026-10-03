@@ -384,24 +384,29 @@ class FirestoreDataService {
   /// Check if user has an active subscription.
   static Future<bool> isSubscribed(String firebaseUid) async {
     try {
-      final now = DateTime.now().toIso8601String().substring(0, 10);
+      // 1. Fast check: is_subscribed flag directly on user record (no composite index needed)
+      final user = await getUserByUid(firebaseUid);
+      if (user?['is_subscribed'] == true) return true;
+    } catch (_) {}
 
-      // 1. Check subscriptions collection
+    try {
+      final now = DateTime.now().toIso8601String().substring(0, 10);
+      // 2. Check subscriptions collection
       final snap = await _db
           .collection('subscriptions')
           .where('firebase_uid', isEqualTo: firebaseUid)
           .where('status', isEqualTo: 'active')
-          .where('end_date', isGreaterThanOrEqualTo: now)
-          .limit(1)
           .get();
-      if (snap.docs.isNotEmpty) return true;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final endDate = data['end_date'] as String?;
+        if (endDate != null && endDate.compareTo(now) >= 0) return true;
+        final expiresAt = data['expires_at'];
+        if (expiresAt is Timestamp && expiresAt.toDate().isAfter(DateTime.now())) return true;
+      }
+    } catch (_) {}
 
-      // 2. Fallback: check is_subscribed flag on the user record
-      final user = await getUserByUid(firebaseUid);
-      return user?['is_subscribed'] == true;
-    } catch (_) {
-      return false;
-    }
+    return false;
   }
 
   /// Get the active subscription record for a user (null if none).
@@ -413,11 +418,19 @@ class FirestoreDataService {
           .collection('subscriptions')
           .where('firebase_uid', isEqualTo: firebaseUid)
           .where('status', isEqualTo: 'active')
-          .where('end_date', isGreaterThanOrEqualTo: now)
-          .limit(1)
           .get();
-      if (snap.docs.isEmpty) return null;
-      return {'id': snap.docs.first.id, ...snap.docs.first.data()};
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final endDate = data['end_date'] as String?;
+        if (endDate != null && endDate.compareTo(now) >= 0) {
+          return {'id': doc.id, ...data};
+        }
+        final expiresAt = data['expires_at'];
+        if (expiresAt is Timestamp && expiresAt.toDate().isAfter(DateTime.now())) {
+          return {'id': doc.id, ...data};
+        }
+      }
+      return null;
     } catch (_) {
       return null;
     }

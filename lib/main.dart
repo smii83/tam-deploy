@@ -9,8 +9,13 @@ import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Firebase — Auth + FCM + Firestore + Storage + Cloud Functions
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    }
+  } catch (e) {
+    debugPrint('Firebase.initializeApp warning: $e');
+  }
   runApp(
     MultiProvider(
       providers: [
@@ -38,13 +43,18 @@ class TamApp extends StatelessWidget {
       themeMode: p.isDark ? ThemeMode.dark : ThemeMode.light,
       locale: Locale(p.language),
       color: splashBg,
-      builder: (context, child) => Directionality(
-        textDirection: p.isAr ? TextDirection.rtl : TextDirection.ltr,
-        child: Container(
-          color: splashBg,
-          child: child!,
-        ),
-      ),
+      builder: (context, child) {
+        final currentTheme = p.isDark
+            ? AppTheme.darkFor(themeId)
+            : AppTheme.lightFor(themeId);
+        return Directionality(
+          textDirection: p.isAr ? TextDirection.rtl : TextDirection.ltr,
+          child: Container(
+            color: currentTheme.scaffoldBackgroundColor,
+            child: child ?? const SizedBox.shrink(),
+          ),
+        );
+      },
       home: const SplashScreen(),
     );
   }

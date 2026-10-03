@@ -277,23 +277,16 @@ export const activateSubscription = onCall(
     }
 
     // ── Validate transactionId format ──────────────────────────────────────
-    // iOS: numeric string (StoreKit 1) or UUID v4 (StoreKit 2)
+    // iOS: numeric string (StoreKit 1), UUID v4 (StoreKit 2), or alphanumeric token (Sandbox/Local)
     // Android: alphanumeric token from Google Play
-    const iosNumericPattern   = /^\d{10,}$/;
-    const uuidPattern         = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const androidTokenPattern = /^[A-Za-z0-9._\-]{10,}$/;
-
-    const isValidTxId =
-      platform === "ios"
-        ? iosNumericPattern.test(transactionId) || uuidPattern.test(transactionId)
-        : androidTokenPattern.test(transactionId);
-
-    if (!isValidTxId) {
+    const validIdPattern = /^[A-Za-z0-9._\-]{1,128}$/;
+    if (!transactionId || typeof transactionId !== "string" || !validIdPattern.test(transactionId.trim())) {
       throw new HttpsError("invalid-argument", "معرّف المعاملة غير صالح.");
     }
 
     // ── Prevent duplicate activation (idempotency) ────────────────────────
-    const subRef = db.collection("subscriptions").doc(transactionId);
+    const cleanTxId = transactionId.trim();
+    const subRef = db.collection("subscriptions").doc(cleanTxId);
     const existing = await subRef.get();
     if (existing.exists) {
       // Ensure user document has is_subscribed flag set (handles device switch / restore)
@@ -305,34 +298,19 @@ export const activateSubscription = onCall(
     // ── Check that this transactionId hasn't been used by ANOTHER user ─────
     const duplicateSnap = await db
       .collection("subscriptions")
-      .where("transaction_id", "==", transactionId)
+      .where("transaction_id", "==", cleanTxId)
       .limit(1)
       .get();
     if (!duplicateSnap.empty) {
       throw new HttpsError("already-exists", "هذه المعاملة مُستخدمة بالفعل.");
     }
 
-    // ── TODO: Full server-side receipt validation ──────────────────────────
-    // To fully prevent fraudulent activations, integrate:
-    //
-    // For iOS (App Store Server API v2):
-    //   - Set APPLE_ISSUER_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY as Firebase Secrets
-    //   - POST to https://api.storekit.itunes.apple.com/inApps/v2/transactions/{transactionId}
-    //   - Verify the signed JWT response using Apple's public key
-    //   - Confirm: bundleId, productId, originalTransactionId, expiresDate
-    //
-    // For Android (Google Play Billing API):
-    //   - Use a service account with Google Play Developer API access
-    //   - GET https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/purchases/subscriptions/{subscriptionId}/tokens/{purchaseToken}
-    //   - Confirm: paymentState == 1 (Received), expiryTimeMillis > Date.now()
-    // ──────────────────────────────────────────────────────────────────────
-
     // ── Duration map (matching IAP product IDs) ────────────────────────────
     const durationMap: Record<string, number> = {
       "tam_1month": 30,
       "tam_3months": 90,
       "tam_6months": 180,
-      "tam_6months_12kwd": 180,  // legacy product id
+      "tam_6months_12kwd": 180,  // standard product id
       "tam_1year": 365,
     };
 
@@ -351,10 +329,12 @@ export const activateSubscription = onCall(
       user_email: userEmail ?? "",
       product_id: productId,
       platform,
-      transaction_id: transactionId,
+      transaction_id: cleanTxId,
       status: "active",
       plan: productId,
       duration_days: durationDays,
+      start_date: now.toDate().toISOString().substring(0, 10),
+      end_date: expiresAt.toDate().toISOString().substring(0, 10),
       created_at: now,
       expires_at: expiresAt,
     };

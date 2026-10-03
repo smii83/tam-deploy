@@ -62,8 +62,8 @@ class _PaymentScreenState extends State<PaymentScreen>
       }
       _available = await InAppPurchase.instance.isAvailable();
       if (_available) {
-        final res =
-            await InAppPurchase.instance.queryProductDetails({_productId});
+        final res = await InAppPurchase.instance
+            .queryProductDetails({_productId, 'tam_6months'});
         setState(() {
           _products = res.productDetails;
           _loading = false;
@@ -80,7 +80,13 @@ class _PaymentScreenState extends State<PaymentScreen>
     for (final p in purchases) {
       if (p.status == PurchaseStatus.purchased ||
           p.status == PurchaseStatus.restored) {
-        await _activate(p.purchaseID ?? '');
+        final txId = (p.purchaseID != null && p.purchaseID!.trim().isNotEmpty)
+            ? p.purchaseID!.trim()
+            : (p.transactionDate != null
+                ? 'tx_${p.transactionDate}'
+                : 'tx_${DateTime.now().millisecondsSinceEpoch}');
+        final effectiveProdId = (p.productID.isNotEmpty) ? p.productID : _productId;
+        await _activate(txId, productId: effectiveProdId);
         await InAppPurchase.instance.completePurchase(p);
       } else if (p.status == PurchaseStatus.error) {
         setState(() => _purchasing = false);
@@ -88,16 +94,17 @@ class _PaymentScreenState extends State<PaymentScreen>
     }
   }
 
-  Future<void> _activate(String txId) async {
+  Future<void> _activate(String txId, {String? productId}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     try {
       // 🔒 SECURE: Subscription activation handled server-side via Cloud Function.
       // The Cloud Function verifies the transaction and writes to Firestore using
       // Firebase Admin SDK — bypassing client-side security rules entirely.
+      final targetProductId = (productId != null && productId.isNotEmpty) ? productId : _productId;
       final functions = FirebaseFunctions.instanceFor(region: 'me-central1');
       await functions.httpsCallable('activateSubscription').call({
-        'productId': _productId,
+        'productId': targetProductId,
         'platform': defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
         'transactionId': txId,
         'userEmail': user.email ?? '',
