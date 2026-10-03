@@ -33,7 +33,9 @@
     <key>UIMainStoryboardFile</key><string>Main</string>
     <key>UIStatusBarStyle</key><string>UIStatusBarStyleDefault</string>
 
-    <!-- ── Portrait Only ───────────────────────────────────────────── -->
+    <!-- ── Orientations & iPad Fullscreen ───────────────────────────── -->
+    <key>UIRequiresFullScreen</key>
+    <true/>
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
@@ -42,6 +44,8 @@
     <array>
         <string>UIInterfaceOrientationPortrait</string>
         <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
     <!-- ── App Transport Security ──────────────────────────────────── -->
