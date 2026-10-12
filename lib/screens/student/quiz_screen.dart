@@ -29,6 +29,7 @@ class _QuizScreenState extends State<QuizScreen> {
       grade: widget.grade,
       pdfTexts: [],
     );
+    if (!mounted) return;
     setState(() {
       _quizQs = qs;
       _qIdx = 0;

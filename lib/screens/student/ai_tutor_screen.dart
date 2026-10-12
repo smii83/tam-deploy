@@ -27,8 +27,13 @@ class _AITutorScreenState extends State<AITutorScreen> {
 
     // Fetch user name and send welcome
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
       final auth = Provider.of<AuthService>(context, listen: false);
-      final fullName = await auth.getUserName();
+      String fullName = '';
+      try {
+        fullName = await auth.getUserName();
+      } catch (_) {}
+      if (!mounted) return;
       if (fullName.isNotEmpty) {
         setState(() => _firstName = fullName.split(' ').first);
       }
@@ -86,6 +91,7 @@ class _AITutorScreenState extends State<AITutorScreen> {
       userName: _firstName,
       country: countryCode,
     );
+    if (!mounted) return;
     setState(() {
       _history.add({'role': 'assistant', 'content': reply});
       _loading = false;

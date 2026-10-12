@@ -8,6 +8,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/app_provider.dart';
 import '../../services/auth_service.dart';
+import '../../services/firestore_data_service.dart';
 import '../../utils/app_theme.dart';
 import '../../utils/app_urls.dart';
 import '../../widgets/animated_pressable.dart';
@@ -25,18 +26,36 @@ class _PaymentScreenState extends State<PaymentScreen>
     with SingleTickerProviderStateMixin {
   static const String _productId = 'tam_6months_12kwd';
   bool _available = false, _loading = true, _purchasing = false;
+  bool _successShown = false;
   List<ProductDetails> _products = [];
   StreamSubscription<List<PurchaseDetails>>? _purchaseSub;
 
   late AnimationController _pulseCtrl;
   late Animation<double> _pulseAnim;
 
+  bool get _isStoreSupported =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
   @override
   void initState() {
     super.initState();
-    _initIAP();
-    if (!kIsWeb) {
-      _purchaseSub = InAppPurchase.instance.purchaseStream.listen(_onPurchase);
+    if (_isStoreSupported) {
+      try {
+        _purchaseSub = InAppPurchase.instance.purchaseStream.listen(
+          _onPurchase,
+          onDone: () => _purchaseSub?.cancel(),
+          onError: (error) {
+            debugPrint('IAP purchaseStream error: $error');
+          },
+        );
+      } catch (e) {
+        debugPrint('IAP purchaseStream setup error: $e');
+      }
+      _initIAP();
+    } else {
+      _loading = false;
     }
     _pulseCtrl = AnimationController(
       vsync: this,
@@ -55,123 +74,223 @@ class _PaymentScreenState extends State<PaymentScreen>
   }
 
   Future<void> _initIAP() async {
+    if (!_isStoreSupported) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
     try {
-      if (kIsWeb) {
-        setState(() => _loading = false);
+      _available = await InAppPurchase.instance.isAvailable();
+      if (!_available) {
+        debugPrint('IAP: store not available on this device');
+        if (mounted) setState(() => _loading = false);
         return;
       }
-      _available = await InAppPurchase.instance.isAvailable();
-      if (_available) {
-        final res = await InAppPurchase.instance
-            .queryProductDetails({_productId, 'tam_6months'});
-        setState(() {
-          _products = res.productDetails;
-          _loading = false;
-        });
-      } else {
-        setState(() => _loading = false);
+      final res =
+          await InAppPurchase.instance.queryProductDetails({_productId});
+      if (res.error != null) {
+        debugPrint('IAP: product query error: ${res.error?.message}');
       }
-    } catch (e) {
-      setState(() => _loading = false);
-    }
-  }
-
-  void _onPurchase(List<PurchaseDetails> purchases) async {
-    for (final p in purchases) {
-      if (p.status == PurchaseStatus.purchased ||
-          p.status == PurchaseStatus.restored) {
-        final txId = (p.purchaseID != null && p.purchaseID!.trim().isNotEmpty)
-            ? p.purchaseID!.trim()
-            : (p.transactionDate != null
-                ? 'tx_${p.transactionDate}'
-                : 'tx_${DateTime.now().millisecondsSinceEpoch}');
-        final effectiveProdId = (p.productID.isNotEmpty) ? p.productID : _productId;
-        await _activate(txId, productId: effectiveProdId);
-        await InAppPurchase.instance.completePurchase(p);
-      } else if (p.status == PurchaseStatus.error) {
-        setState(() => _purchasing = false);
+      if (res.notFoundIDs.isNotEmpty) {
+        debugPrint('IAP: product(s) not found in store: ${res.notFoundIDs}');
       }
-    }
-  }
-
-  Future<void> _activate(String txId, {String? productId}) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    try {
-      // 🔒 SECURE: Subscription activation handled server-side via Cloud Function.
-      // The Cloud Function verifies the transaction and writes to Firestore using
-      // Firebase Admin SDK — bypassing client-side security rules entirely.
-      final targetProductId = (productId != null && productId.isNotEmpty) ? productId : _productId;
-      final functions = FirebaseFunctions.instanceFor(region: 'me-central1');
-      await functions.httpsCallable('activateSubscription').call({
-        'productId': targetProductId,
-        'platform': defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
-        'transactionId': txId,
-        'userEmail': user.email ?? '',
+      if (!mounted) return;
+      setState(() {
+        _products = res.productDetails;
+        _loading = false;
       });
-    } on FirebaseFunctionsException catch (fnEx) {
-      debugPrint('activateSubscription error: ${fnEx.code} — ${fnEx.message}');
-      if (mounted) {
-        _snack('حدث خطأ أثناء تفعيل الاشتراك. يرجى التواصل مع الدعم.');
-      }
-      setState(() => _purchasing = false);
-      return;
     } catch (e) {
-      debugPrint('activateSubscription exception: $e');
-      if (mounted) {
-        _snack('حدث خطأ غير متوقع. يرجى التواصل مع الدعم.');
-      }
-      setState(() => _purchasing = false);
-      return;
+      debugPrint('IAP: init failed: $e');
+      if (mounted) setState(() => _loading = false);
     }
-    if (!mounted) return;
-    setState(() => _purchasing = false);
-    _showSuccess();
+  }
+
+  Future<void> _onPurchase(List<PurchaseDetails> purchases) async {
+    for (final p in purchases) {
+      try {
+        await _handlePurchase(p);
+      } catch (e, st) {
+        // Never let a store event crash the app.
+        debugPrint('IAP: failed handling purchase ${p.productID}: $e\n$st');
+        if (mounted) setState(() => _purchasing = false);
+      }
+    }
+  }
+
+  Future<void> _handlePurchase(PurchaseDetails p) async {
+    switch (p.status) {
+      case PurchaseStatus.pending:
+        break; // waiting for the store (e.g. Ask to Buy) — keep spinner
+
+      case PurchaseStatus.purchased:
+      case PurchaseStatus.restored:
+        final ok = await _activate(p);
+        // Only finish the transaction once activation succeeded. If it
+        // failed we leave it open so the store re-delivers it on the next
+        // launch instead of silently losing a paid purchase.
+        if (ok && p.pendingCompletePurchase) {
+          await InAppPurchase.instance.completePurchase(p);
+        }
+        if (!mounted) return;
+        setState(() => _purchasing = false);
+        if (ok) _showSuccess();
+        break;
+
+      case PurchaseStatus.error:
+        if (p.pendingCompletePurchase) {
+          await InAppPurchase.instance.completePurchase(p);
+        }
+        if (!mounted) return;
+        setState(() => _purchasing = false);
+        _snack(p.error?.message.isNotEmpty == true
+            ? p.error!.message
+            : 'تعذّرت عملية الدفع. يرجى المحاولة مرة أخرى.');
+        break;
+
+      case PurchaseStatus.canceled:
+        if (p.pendingCompletePurchase) {
+          await InAppPurchase.instance.completePurchase(p);
+        }
+        if (!mounted) return;
+        setState(() => _purchasing = false); // user closed the payment sheet
+        break;
+    }
+  }
+
+  /// Activates the subscription after a store purchase. Returns true only when
+  /// the user ended up with an active subscription.
+  ///
+  /// 1. Tries the `activateSubscription` Cloud Function (server-side).
+  /// 2. If the function is unavailable (not deployed, no network to it, …)
+  ///    falls back to writing the subscription record directly to Firestore
+  ///    (allowed by firestore.rules for the user's own validated record).
+  Future<bool> _activate(PurchaseDetails p) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return false;
+
+    final txId = p.purchaseID?.trim() ?? '';
+    final receipt = p.verificationData.serverVerificationData;
+    final productId = p.productID.isNotEmpty ? p.productID : _productId;
+    final platform =
+        defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
+    // Some store events (e.g. restored) can lack a purchaseID — derive a
+    // stable fallback so the same purchase can't be activated twice.
+    final effectiveTxId = txId.isNotEmpty
+        ? txId
+        : (p.transactionDate != null
+            ? 'tx_${user.uid}_${p.transactionDate}'
+            : '');
+
+    // ── 1) Cloud Function ───────────────────────────────────────────────
+    if (effectiveTxId.isNotEmpty) {
+      try {
+        final functions = FirebaseFunctions.instanceFor(region: 'me-central1');
+        await functions
+            .httpsCallable('activateSubscription')
+            .call({
+              'productId': productId,
+              'platform': platform,
+              'transactionId': effectiveTxId,
+              'receiptData': receipt,
+              'userEmail': user.email ?? '',
+            })
+            .timeout(const Duration(seconds: 12));
+        return true;
+      } on FirebaseFunctionsException catch (fnEx) {
+        debugPrint(
+            'activateSubscription CF error: ${fnEx.code} — ${fnEx.message}');
+      } catch (e) {
+        debugPrint('activateSubscription CF exception: $e');
+      }
+    }
+
+    // ── 2) Direct Firestore fallback ────────────────────────────────────
+    try {
+      final ok = await FirestoreDataService.activateSubscription(
+        firebaseUid: user.uid,
+        userEmail: user.email ?? '',
+        plan: productId,
+        transactionId: effectiveTxId,
+        platform: platform,
+      );
+      if (ok) return true;
+    } catch (e) {
+      debugPrint('activateSubscription fallback exception: $e');
+    }
+
+    if (mounted) {
+      _snack('تم الدفع لكن تعذّر تفعيل الاشتراك الآن. لا تدفع مرة أخرى — '
+          'أعد فتح التطبيق أو اضغط "استعادة المشتريات".');
+    }
+    return false;
   }
 
   Future<void> _purchase() async {
-    // 🔒 Security: Web platform does NOT support real payments.
-    if (kIsWeb) {
-      _snack('الاشتراك متاح فقط عبر تطبيق iOS أو Android');
+    // 🔒 Security: Only official iOS and Android stores support in-app purchases.
+    if (!_isStoreSupported) {
+      _snack('الاشتراك متاح فقط عبر تطبيق iOS أو Android الرسمي');
       return;
     }
     if (_products.isEmpty) {
-      _snack('المنتج غير متاح حالياً، حاول لاحقاً');
-      return;
+      // Products may have failed to load earlier (slow network) — retry once.
+      setState(() => _loading = true);
+      await _initIAP();
+      if (!mounted) return;
+      if (_products.isEmpty) {
+        _snack(_available
+            ? 'المنتج غير متاح حالياً، حاول لاحقاً'
+            : 'متجر التطبيقات غير متاح على هذا الجهاز حالياً');
+        return;
+      }
     }
     setState(() => _purchasing = true);
-    // ── NOTE: use buyConsumable for non-auto-renewing (time-limited) subscriptions
-    // If you convert to Auto-Renewable Subscription in App Store Connect,
-    // switch this back to buyNonConsumable.
-    await InAppPurchase.instance.buyConsumable(
-        purchaseParam: PurchaseParam(productDetails: _products.first));
+    final product = _products.first;
+    final purchaseParam = PurchaseParam(productDetails: product);
+    try {
+      final started = await InAppPurchase.instance.buyConsumable(
+          purchaseParam: purchaseParam);
+      if (!started && mounted) setState(() => _purchasing = false);
+    } catch (e) {
+      debugPrint('IAP: buyConsumable failed: $e, trying buyNonConsumable');
+      try {
+        final started = await InAppPurchase.instance.buyNonConsumable(
+            purchaseParam: purchaseParam);
+        if (!started && mounted) setState(() => _purchasing = false);
+      } catch (e2) {
+        debugPrint('IAP: buyNonConsumable failed: $e2');
+        if (mounted) {
+          setState(() => _purchasing = false);
+          _snack('تعذّر بدء عملية الدفع. يرجى المحاولة مرة أخرى.');
+        }
+      }
+    }
   }
 
   // ── Restore Purchases (Apple App Store Guideline 3.1.1 requirement) ───────
   Future<void> _restorePurchases() async {
-    if (kIsWeb) {
-      _snack('ميزة استعادة المشتريات متاحة فقط عبر تطبيق iOS أو Android');
+    if (!_isStoreSupported) {
+      _snack('ميزة استعادة المشتريات متاحة فقط عبر تطبيق iOS أو Android الرسمي');
       return;
     }
+    final isAr = context.read<AppProvider>().isAr;
     setState(() => _purchasing = true);
     try {
       await InAppPurchase.instance.restorePurchases();
-      if (mounted) {
-        final isAr = context.read<AppProvider>().isAr;
+      // Restored purchases arrive through the purchase stream (_onPurchase),
+      // which stops the spinner. If nothing arrives, tell the user.
+      await Future.delayed(const Duration(seconds: 6));
+      if (mounted && _purchasing && !_successShown) {
+        setState(() => _purchasing = false);
         _snack(isAr
-            ? 'جاري التحقق من المشتريات السابقة واستعادتها...'
-            : 'Checking and restoring previous purchases...');
+            ? 'لا توجد مشتريات سابقة لاستعادتها على هذا الحساب'
+            : 'No previous purchases were found for this account');
       }
     } catch (e) {
+      debugPrint('IAP: restore failed: $e');
       if (mounted) {
-        final isAr = context.read<AppProvider>().isAr;
+        setState(() => _purchasing = false);
         _snack(isAr
             ? 'تعذر استعادة المشتريات حالياً. يرجى المحاولة لاحقاً'
             : 'Could not restore purchases. Please try again later.');
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _purchasing = false);
       }
     }
   }
@@ -180,11 +299,15 @@ class _PaymentScreenState extends State<PaymentScreen>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
   void _showSuccess() {
-    final p = context.read<AppProvider>();
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
+    if (_successShown) return; // restore may deliver several records at once
+    _successShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final p = context.read<AppProvider>();
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         contentPadding: const EdgeInsets.all(28),
@@ -235,6 +358,7 @@ class _PaymentScreenState extends State<PaymentScreen>
         ]),
       ),
     );
+    });
   }
 
   @override

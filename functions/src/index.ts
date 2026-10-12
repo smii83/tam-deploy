@@ -348,3 +348,50 @@ export const activateSubscription = onCall(
     return { success: true, durationDays, expiresAt: expiresAt.toMillis() };
   }
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cloud Function 6: adminSetUserPassword — Admin updates user password
+// ─────────────────────────────────────────────────────────────────────────────
+export const adminSetUserPassword = onCall(
+  { region: "me-central1" },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError("unauthenticated", "يجب تسجيل الدخول كمسؤول.");
+    }
+    const callerEmail = (request.auth.token.email || "").toLowerCase().trim();
+    const adminEmails = [
+      "tam.app83@gmail.com",
+      "tm.app83@gmail.com",
+      "tamteach01@gmail.com",
+      "admin@tam.com",
+    ];
+    if (!adminEmails.includes(callerEmail)) {
+      throw new HttpsError("permission-denied", "هذه العملية مخصصة للمشرفين فقط.");
+    }
+    const { uid, email, newPassword } = request.data as {
+      uid?: string;
+      email?: string;
+      newPassword: string;
+    };
+    if (!newPassword || typeof newPassword !== "string" || newPassword.length < 6) {
+      throw new HttpsError("invalid-argument", "كلمة المرور يجب ألا تقل عن 6 أحرف.");
+    }
+
+    let targetUid = uid;
+    if (!targetUid && email) {
+      const userRecord = await admin.auth().getUserByEmail(email);
+      targetUid = userRecord.uid;
+    }
+    if (!targetUid) {
+      throw new HttpsError("not-found", "لم يتم العثور على حساب الطالب.");
+    }
+
+    await admin.auth().updateUser(targetUid, { password: newPassword });
+
+    try {
+      await db.collection("users").doc(targetUid).update({ password: newPassword });
+    } catch (_) {}
+
+    return { success: true };
+  }
+);

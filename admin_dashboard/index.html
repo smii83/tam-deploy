@@ -36,6 +36,11 @@
       <button class="btn-primary btn-full" onclick="doLogin()">
         <span id="loginBtnText">تسجيل الدخول</span>
       </button>
+      <div style="text-align: center; margin-top: 1.2rem;">
+        <a href="javascript:void(0)" onclick="doForgotPassword()"
+          style="color: #a855f7; font-size: 0.9rem; text-decoration: underline; cursor: pointer;">نسيت كلمة المرور؟
+          إرسال رابط لإعادة التعيين</a>
+      </div>
     </div>
   </div>
 
@@ -139,7 +144,9 @@
       <section id="section-grades" class="section">
         <div class="section-toolbar">
           <h3>إدارة الصفوف الدراسية (6 – 12)</h3>
-          <button class="btn-primary" onclick="seedKuwaitTracks()" style="background: linear-gradient(135deg, #6C63FF, #3F36E2);">✨ مزامنة نظام المسارات الجديد (الكويت 2026)</button>
+          <button class="btn-primary" onclick="seedKuwaitTracks()"
+            style="background: linear-gradient(135deg, #6C63FF, #3F36E2);">✨ مزامنة نظام المسارات الجديد (الكويت
+            2026)</button>
         </div>
         <div id="gradesList" class="grades-grid">
           <p class="empty-msg">جارٍ التحميل...</p>
@@ -247,6 +254,32 @@
               <input type="password" id="confirmPassword" placeholder="••••••••" />
             </div>
             <button class="btn-primary" onclick="changePassword()">حفظ كلمة المرور</button>
+          </div>
+          <div class="settings-card">
+            <h4>🤖 إعدادات الذكاء الاصطناعي (Google Gemini)</h4>
+            <div class="form-group">
+              <label>Gemini API Key</label>
+              <div style="display:flex;gap:0.5rem;">
+                <input type="password" id="geminiApiKeyInput"
+                  placeholder="أدخل مفتاح Gemini API هنا..." style="flex:1" />
+                <button type="button" class="btn-secondary" onclick="toggleApiKeyVisibility()" id="btnToggleApiKey"
+                  style="padding:0.4rem 0.8rem">👁️</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>نموذج الذكاء الاصطناعي (Model)</label>
+              <select id="geminiModelSelect">
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash (موصى به - فائق السرعة والدقة)</option>
+                <option value="gemini-flash-latest">Gemini Flash (أحدث إصدار تلقائياً)</option>
+              </select>
+            </div>
+            <p class="hint-text" style="margin-bottom:0.8rem">يتم تطبيق هذا المفتاح فورياً على كافة طلاب التطبيق لحل
+              المسائل، تلخيص المحتوى، المدرس الذكي، والاختبارات.</p>
+            <div style="display:flex;gap:0.8rem">
+              <button class="btn-primary" onclick="saveGeminiSettings()">💾 حفظ المفتاح</button>
+              <button class="btn-secondary" onclick="testGeminiConnection()">⚡ فحص الاتصال</button>
+            </div>
+            <div id="geminiStatusMsg" style="margin-top:0.8rem;font-size:0.85rem"></div>
           </div>
           <div class="settings-card">
             <h4>🔥 Firebase Project</h4>
@@ -466,9 +499,13 @@
           <label>البريد الإلكتروني</label>
           <input type="email" id="studentEmail" placeholder="student@email.com" />
         </div>
-        <div class="form-group">
+        <div class="form-group" id="studentPasswordGroup">
           <label>كلمة المرور (الباسورد)</label>
-          <input type="text" id="studentPassword" placeholder="أدخل كلمة مرور الطالب" />
+          <input type="text" id="studentPassword" placeholder="أدخل كلمة مرور الطالب (6 أحرف على الأقل)" />
+          <div id="studentPasswordHint" style="font-size:0.75rem; color:var(--text-muted); margin-top:0.3rem"></div>
+          <button type="button" id="btnSendStudentReset" class="btn-secondary"
+            style="margin-top:0.4rem; font-size:0.8rem; padding:0.35rem 0.7rem; display:none"
+            onclick="sendStudentPasswordReset()">📩 إرسال رابط تعيين كلمة المرور لإيميل الطالب</button>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -509,12 +546,12 @@
         <input type="hidden" id="editSubStudentId" />
         <input type="hidden" id="editSubStudentEmail" />
         <input type="hidden" id="editSubStudentUid" />
-        
+
         <div class="form-group">
           <label>البريد الإلكتروني للطالب</label>
           <input type="text" id="editSubEmailDisplay" readonly style="opacity:0.75" />
         </div>
-        
+
         <div class="form-group">
           <label>الحالة الحالية للاشتراك</label>
           <div id="editSubStatusDisplay" style="font-weight:bold;margin-bottom:0.5rem"></div>
@@ -541,7 +578,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
-  <script src="app.js?v=firebase1"></script>
+  <script src="app.js?v=20261012_v6"></script>
 </body>
 
 </html>

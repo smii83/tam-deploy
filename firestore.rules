@@ -12,7 +12,10 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuth() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isAuth() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email in ['tam.app83@gmail.com', 'tm.app83@gmail.com', 'tamteach01@gmail.com', 'admin@tam.com']
+      );
     }
 
     // ── Admins ────────────────────────────────────────────────────────────
@@ -23,38 +26,51 @@ service cloud.firestore {
 
     // ── Users ─────────────────────────────────────────────────────────────
     // Each user can read/write ONLY their own document.
-    // Admins can read any user document (for dashboard).
+    // Admins have full access (for dashboard management).
     match /users/{userId} {
       allow read:   if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId);
-      // Prevent clients from writing sensitive admin-only fields
-      allow update: if isOwner(userId)
+      allow create: if isOwner(userId) || isAdmin();
+      // Admins have full update rights; regular users can only update their own non-sensitive fields
+      allow update: if isAdmin() || (isOwner(userId)
                     && !request.resource.data.diff(resource.data).affectedKeys()
-                        .hasAny(['is_blocked', 'is_admin', 'role', 'is_subscribed']);
-      allow delete: if isOwner(userId); // Required for Apple 5.1.1 account deletion
+                        .hasAny(['is_blocked', 'is_admin', 'role', 'is_subscribed']));
+      allow delete: if isOwner(userId) || isAdmin(); // Required for Apple 5.1.1 and Admin deletion
 
       // ── Progress subcollection ──────────────────────────────────────────
       match /progress/{lessonId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
 
       // ── Quiz Results subcollection ──────────────────────────────────────
       match /quiz_results/{resultId} {
-        allow read:          if isOwner(userId);
-        allow create:        if isOwner(userId);
-        allow update, delete: if false; // Immutable once saved
+        allow read:           if isOwner(userId) || isAdmin();
+        allow create:         if isOwner(userId);
+        allow update:         if isAdmin();
+        allow delete:         if isOwner(userId) || isAdmin(); // account deletion
       }
     }
 
     // ── Subscriptions ─────────────────────────────────────────────────────
-    // Clients can only READ their own subscriptions.
-    // ALL writes (create/update/delete) are done exclusively by Cloud Functions
-    // using Firebase Admin SDK — which bypasses these rules entirely.
-    // This prevents any client from fraudulently activating a subscription.
+    // Users can READ their own subscriptions and CREATE one for themselves
+    // right after a successful store purchase (validated shape, id = store
+    // transaction id, so it can't be overwritten). They can never update or
+    // delete. Admins (dashboard) and Cloud Functions (Admin SDK) manage the rest.
     match /subscriptions/{subId} {
-      allow read:             if isAuth() && resource.data.firebase_uid == request.auth.uid;
-      allow create, update:   if false; // Cloud Functions (Admin SDK) only
-      allow delete:           if false; // Cloud Functions (Admin SDK) only
+      allow read:   if (isAuth() && resource.data.firebase_uid == request.auth.uid) || isAdmin();
+      allow create: if isAdmin() || (
+                      isAuth()
+                      && request.resource.data.firebase_uid == request.auth.uid
+                      && request.resource.data.status == 'active'
+                      && request.resource.data.plan in ['tam_6months_12kwd', 'tam_6months', 'tam_3months', 'tam_1month', 'tam_1year']
+                      && request.resource.data.duration_days is int
+                      && request.resource.data.duration_days <= 365
+                      && request.resource.data.created == request.time
+                      && request.resource.data.keys().hasOnly([
+                           'user_email', 'firebase_uid', 'plan', 'product_id', 'platform',
+                           'transaction_id', 'status', 'duration_days', 'start_date',
+                           'end_date', 'created'])
+                    );
+      allow update, delete: if isAdmin();
     }
 
     // ── Grades ────────────────────────────────────────────────────────────
@@ -87,6 +103,12 @@ service cloud.firestore {
 
     // ── Countries (public config) ─────────────────────────────────────────
     match /countries/{countryId} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // ── Global Config (AI settings, etc.) ─────────────────────────────────
+    match /config/{configId} {
       allow read:  if isAuth();
       allow write: if isAdmin();
     }

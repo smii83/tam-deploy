@@ -21,7 +21,7 @@ class VideoPlayerScreen extends StatefulWidget {
 }
 
 class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
-  late VideoPlayerController _videoPlayerController;
+  VideoPlayerController? _videoPlayerController;
   ChewieController? _chewieController;
   bool _hasError = false;
   String _errorMessage = '';
@@ -35,17 +35,20 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   Future<void> _initializePlayer() async {
     try {
-      _videoPlayerController =
+      final controller =
           VideoPlayerController.networkUrl(Uri.parse(widget.url));
-      await _videoPlayerController.initialize();
+      _videoPlayerController = controller;
+      await controller.initialize();
 
       if (!mounted) return;
 
       _chewieController = ChewieController(
-        videoPlayerController: _videoPlayerController,
+        videoPlayerController: controller,
         autoPlay: true,
         looping: false,
-        aspectRatio: _videoPlayerController.value.aspectRatio,
+        aspectRatio: controller.value.aspectRatio == 0
+            ? 16 / 9
+            : controller.value.aspectRatio,
         materialProgressColors: ChewieProgressColors(
           playedColor: widget.themeColor,
           handleColor: widget.themeColor,
@@ -75,8 +78,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     _chewieController?.dispose();
     _chewieController = null;
     try {
-      await _videoPlayerController.dispose();
+      await _videoPlayerController?.dispose();
     } catch (_) {}
+    _videoPlayerController = null;
     await _initializePlayer();
   }
 
@@ -118,7 +122,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   @override
   void dispose() {
     SecurityUtils.disableSecureMode();
-    _videoPlayerController.dispose();
+    _videoPlayerController?.dispose();
     _chewieController?.dispose();
     super.dispose();
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/auth_service.dart';
@@ -10,6 +11,7 @@ import 'register_screen.dart';
 import '../../services/firestore_data_service.dart';
 
 import '../student/home_screen.dart';
+import '../student/payment_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final String? errorMsg;
@@ -272,17 +274,30 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   void _toHome() async {
-    final data = await context.read<AuthService>().getUserData();
-    if (mounted) {
-      if (data != null && data['is_blocked'] == true) {
-        await context.read<AuthService>().logout();
-        setState(() => _error = 'لقد تم حظر هذا الحساب من قبل الإدارة.');
-        return;
-      }
-      context.read<AppProvider>().userData = data;
-      Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+    final auth = context.read<AuthService>();
+    final data = await auth.getUserData();
+    if (!mounted) return;
+    if (data != null && data['is_blocked'] == true) {
+      await auth.logout();
+      if (!mounted) return;
+      setState(() => _error = 'لقد تم حظر هذا الحساب من قبل الإدارة.');
+      return;
     }
+    context.read<AppProvider>().userData = data;
+
+    // 🔒 Paywall: only subscribed users may enter the app. Everyone else
+    // (new Apple/Google sign-ins, expired subscriptions) goes to payment.
+    final uid = auth.currentUser?.uid;
+    final subscribed =
+        uid != null && await FirestoreDataService.isSubscribed(uid);
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            subscribed ? const HomeScreen() : const PaymentScreen(),
+      ),
+    );
   }
 
   @override
@@ -614,8 +629,10 @@ class _LoginScreenState extends State<LoginScreen>
                       const SizedBox(height: 20),
                       _divider(p),
                       const SizedBox(height: 20),
-                      _appleBtn(p),
-                      const SizedBox(height: 10),
+                      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) ...[
+                        _appleBtn(p),
+                        const SizedBox(height: 10),
+                      ],
                       _googleBtn(p),
                       const SizedBox(height: 28),
 

@@ -25,6 +25,10 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:82581349835:ios:29d2dfd19d02774f42824e</string>
+	<string>1:82581349835:ios:52bd7d922fa3bc9e42824e</string>
+	<key>CLIENT_ID</key>
+	<string>82581349835-39166noa7oa449lakj80plqsgegau8rm.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.82581349835-39166noa7oa449lakj80plqsgegau8rm</string>
 </dict>
 </plist>

@@ -142,7 +142,8 @@ class _SplashScreenState extends State<SplashScreen>
         _push(const LoginScreen(errorMsg: 'لقد تم حظر هذا الحساب من قبل الإدارة.'));
         return;
       }
-      final ok = await FirestoreDataService.isSubscribed(firebaseUser.uid);
+      final ok = await FirestoreDataService.isSubscribed(firebaseUser.uid,
+          rethrowErrors: true);
       if (!mounted) return;
       // Cache result for offline fallback
       try {

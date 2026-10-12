@@ -7,7 +7,10 @@ service firebase.storage {
     }
 
     function isAdmin() {
-      return isAuth() && firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid));
+      return isAuth() && (
+        firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email in ['tam.app83@gmail.com', 'tm.app83@gmail.com', 'tamteach01@gmail.com', 'admin@tam.com']
+      );
     }
 
     function isSubscribed() {

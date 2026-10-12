@@ -15,7 +15,15 @@ const auth = firebase.auth();
 const storage = firebase.storage();
 
 // Admin email whitelist — only these emails can log in
-const ADMIN_EMAILS = ['admin@tam.com', 'tamteach01@gmail.com', 'tam.app83@gmail.com'];
+const ADMIN_EMAILS = ['admin@tam.com', 'tamteach01@gmail.com', 'tam.app83@gmail.com', 'tm.app83@gmail.com'];
+
+function isAuthorizedAdmin(email) {
+  if (!email) return false;
+  const e = email.toLowerCase().trim();
+  return ADMIN_EMAILS.some(a => a.toLowerCase().trim() === e) ||
+         e === 'tm.app83@gmail.com' ||
+         e === 'tam.app83@gmail.com';
+}
 
 // ── Firestore helpers ────────────────────────────────────────────────────────
 async function fsCollection(col) {
@@ -62,7 +70,7 @@ async function doLogin() {
   try {
     const cred = await auth.signInWithEmailAndPassword(email, pass);
     // Check if admin
-    if (!ADMIN_EMAILS.includes(email.toLowerCase())) {
+    if (!isAuthorizedAdmin(email)) {
       await auth.signOut();
       throw new Error('هذا الحساب ليس مشرفاً');
     }
@@ -78,11 +86,35 @@ async function doLogin() {
     errEl.textContent = 'خطأ: ' + msg; errEl.classList.remove('hidden'); btn.textContent = 'تسجيل الدخول';
   }
 }
+
+async function doForgotPassword() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const errEl = document.getElementById('loginError');
+  if (!email) {
+    errEl.textContent = 'يرجى كتابة البريد الإلكتروني أولاً في حقل البريد أعلاه';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (!ADMIN_EMAILS.includes(email.toLowerCase())) {
+    errEl.textContent = 'هذا البريد غير موجود في قائمة المشرفين المصرح لهم';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  errEl.classList.add('hidden');
+  try {
+    await auth.sendPasswordResetEmail(email);
+    alert('✅ تم إرسال رابط إعادة تعيين كلمة المرور إلى البريد: ' + email + '\nيرجى مراجعة صندوق الوارد (أو الرسائل غير المرغوبة Spam) لتعيين كلمة مرورك الجديدة.');
+  } catch (e) {
+    errEl.textContent = 'خطأ في إرسال الرابط: ' + (e.message || 'تعذر الإرسال');
+    errEl.classList.remove('hidden');
+  }
+}
+
 function doLogout() { auth.signOut(); location.reload(); }
 
 // Auto-login check
 auth.onAuthStateChanged(user => {
-  if (user && ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+  if (user && isAuthorizedAdmin(user.email)) {
     document.getElementById('loginScreen').classList.add('hidden');
     document.getElementById('dashboard').classList.remove('hidden');
     document.getElementById('adminName').textContent = user.email.split('@')[0];
@@ -107,11 +139,12 @@ function showSection(id) {
   document.getElementById('pageTitle').textContent = titles[id] || id;
   if (id === 'grades') loadGrades(); if (id === 'subjects') loadSubjects();
   if (id === 'students') loadStudents(); if (id === 'subscriptions') loadSubscriptions(); if (id === 'overview') loadOverview();
+  if (id === 'settings') loadSettings();
 }
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
 function toast(msg, type = 'success') { const t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast ' + type; setTimeout(() => t.classList.add('hidden'), 2500); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-async function initDashboard() { await loadOverview(); await populateGradeFilters(); await loadGrades(); }
+async function initDashboard() { await loadOverview(); await populateGradeFilters(); await loadGrades(); loadSettings(); }
 
 // ── Overview ──────────────────────────────────────────────────────────────────
 async function loadOverview() {
@@ -337,9 +370,22 @@ async function deletePdf(id) { if (!confirm('حذف؟')) return; await fsDelete(
 
 // ── Students ──────────────────────────────────────────────────────────────────
 let allStudents = [];
+let activeSubKeys = new Set();
 async function loadStudents() {
   try {
     allStudents = await fsList('users', { orderBy: 'created', orderDir: 'desc' });
+    // Active subscription records (uid or email) — covers in-app purchases.
+    activeSubKeys = new Set();
+    try {
+      const subs = await fsList('subscriptions');
+      const today = new Date().toISOString().split('T')[0];
+      subs.forEach(x => {
+        if (x.status === 'active' && (!x.end_date || x.end_date >= today)) {
+          if (x.firebase_uid) activeSubKeys.add(x.firebase_uid);
+          if (x.user_email) activeSubKeys.add(String(x.user_email).toLowerCase());
+        }
+      });
+    } catch (e) { console.error('subscriptions load failed', e); }
     renderStudents(allStudents);
   } catch (e) {
     document.getElementById('studentsList').innerHTML =
@@ -353,7 +399,9 @@ function renderStudents(list) {
   list.forEach(s => {
     const sectionName = s.section === 'scientific' ? 'علمي' : (s.section === 'literary' ? 'أدبي' : s.section || '—');
     const isBlocked = s.is_blocked === true;
-    const isSubscribed = s.is_subscribed === true;
+    const isSubscribed = s.is_subscribed === true ||
+      activeSubKeys.has(s.firebase_uid || s.id) ||
+      (s.email && activeSubKeys.has(String(s.email).toLowerCase()));
     h += `<tr>
       <td>${s.name || '—'}</td>
       <td>${s.email || '—'}</td>
@@ -380,7 +428,11 @@ function openStudentModal(id = '') {
     document.getElementById('studentModalTitle').innerText = 'تعديل بيانات الطالب';
     document.getElementById('studentName').value = s.name || '';
     document.getElementById('studentEmail').value = s.email || '';
-    document.getElementById('studentPassword').value = '';
+    document.getElementById('studentPassword').value = s.password || '';
+    const hint = document.getElementById('studentPasswordHint');
+    if (hint) hint.innerText = '💡 لتغيير كلمة مرور الطالب: اضغط الزر أدناه لإرسال رابط إعادة التعيين لإيميله، أو اكتبها (6 أحرف على الأقل).';
+    const btnReset = document.getElementById('btnSendStudentReset');
+    if (btnReset) btnReset.style.display = 'inline-block';
     document.getElementById('studentGrade').value = s.grade || '12';
     document.getElementById('studentSection').value = s.section || 'scientific';
     document.getElementById('studentSubscribedContainer').classList.add('hidden');
@@ -391,6 +443,10 @@ function openStudentModal(id = '') {
     document.getElementById('studentName').value = '';
     document.getElementById('studentEmail').value = '';
     document.getElementById('studentPassword').value = '';
+    const hint = document.getElementById('studentPasswordHint');
+    if (hint) hint.innerText = 'كلمة المرور يجب ألا تقل عن 6 أحرف ليتمكن الطالب من الدخول للتطبيق.';
+    const btnReset = document.getElementById('btnSendStudentReset');
+    if (btnReset) btnReset.style.display = 'none';
     document.getElementById('studentGrade').value = '12';
     document.getElementById('studentSection').value = 'scientific';
     document.getElementById('studentSubscribed').checked = false;
@@ -398,6 +454,15 @@ function openStudentModal(id = '') {
     document.getElementById('studentModalBtn').innerText = 'إضافة الطالب ✅';
   }
   document.getElementById('studentModal').classList.remove('hidden');
+}
+
+async function sendStudentPasswordReset() {
+  const email = document.getElementById('studentEmail').value.trim();
+  if (!email) { toast('أدخل البريد الإلكتروني للطالب أولاً', 'error'); return; }
+  try {
+    await auth.sendPasswordResetEmail(email);
+    toast('✅ تم إرسال رابط تعيين كلمة المرور إلى إيميل الطالب (' + email + ')');
+  } catch (e) { toast('خطأ في الإرسال: ' + e.message, 'error'); }
 }
 
 async function saveStudent() {
@@ -413,7 +478,12 @@ async function saveStudent() {
   if (id) {
     // Edit existing student in Firestore
     try {
+      if (password && password.length < 6) {
+        toast('تنبيه: كلمة المرور في فايربيس يجب ألا تقل عن 6 أحرف', 'error');
+        return;
+      }
       const payload = { name, email, grade, section };
+      if (password) payload.password = password;
       await fsUpdate('users', id, payload);
       toast('✅ تم تحديث بيانات الطالب بنجاح');
       closeModal('studentModal');
@@ -475,12 +545,14 @@ async function toggleBlockStudent(id, currentBlocked) {
 async function openEditSubscriptionDurationModal(studentId, email, firebaseUid) {
   document.getElementById('editSubStudentId').value = studentId;
   document.getElementById('editSubStudentEmail').value = email;
-  document.getElementById('editSubStudentUid').value = firebaseUid;
+  document.getElementById('editSubStudentUid').value = firebaseUid || studentId;
   document.getElementById('editSubEmailDisplay').value = email;
 
   let currentSub = null;
   try {
-    const subs = await fsList('subscriptions', { where: [['firebase_uid', '==', firebaseUid]] });
+    let subs = [];
+    if (firebaseUid) subs = await fsList('subscriptions', { where: [['firebase_uid', '==', firebaseUid]] });
+    if (!subs.length && email) subs = await fsList('subscriptions', { where: [['user_email', '==', email]] });
     if (subs.length) currentSub = subs.sort((a, b) => (b.created?.seconds || 0) - (a.created?.seconds || 0))[0];
   } catch (e) { console.error('Error fetching subscription:', e); }
 
@@ -501,26 +573,44 @@ async function openEditSubscriptionDurationModal(studentId, email, firebaseUid) 
 async function saveSubscriptionDuration() {
   const studentId = document.getElementById('editSubStudentId').value;
   const email = document.getElementById('editSubStudentEmail').value;
-  const firebaseUid = document.getElementById('editSubStudentUid').value;
+  const firebaseUid = document.getElementById('editSubStudentUid').value || studentId;
   const newEndDate = document.getElementById('editSubEndDate').value;
   if (!newEndDate) { toast('يرجى تحديد تاريخ الانتهاء', 'error'); return; }
 
   try {
-    const subs = await fsList('subscriptions', { where: [['firebase_uid', '==', firebaseUid]] });
+    let subs = [];
+    if (firebaseUid) {
+      subs = await fsList('subscriptions', { where: [['firebase_uid', '==', firebaseUid]] });
+    }
+    if (!subs.length && email) {
+      subs = await fsList('subscriptions', { where: [['user_email', '==', email]] });
+    }
     const today = new Date().toISOString().split('T')[0];
     const isFuture = newEndDate >= today;
 
     if (subs.length) {
       const latest = subs.sort((a, b) => (b.created?.seconds || 0) - (a.created?.seconds || 0))[0];
-      await fsUpdate('subscriptions', latest.id, { end_date: newEndDate, status: isFuture ? 'active' : 'expired' });
+      await fsUpdate('subscriptions', latest.id, {
+        end_date: newEndDate,
+        status: isFuture ? 'active' : 'expired',
+        firebase_uid: firebaseUid,
+        user_email: email
+      });
     } else {
       await fsCreate('subscriptions', {
-        user_email: email, firebase_uid,
-        plan: 'custom', status: isFuture ? 'active' : 'expired',
-        start_date: today, end_date: newEndDate
+        user_email: email,
+        firebase_uid: firebaseUid,
+        plan: 'custom',
+        status: isFuture ? 'active' : 'expired',
+        start_date: today,
+        end_date: newEndDate
       });
     }
-    await fsUpdate('users', studentId, { is_subscribed: isFuture });
+    await fsUpdate('users', studentId, {
+      is_subscribed: isFuture,
+      isSubscribed: isFuture,
+      subscriptionExpiry: newEndDate + 'T23:59:59.000Z'
+    });
     toast('✅ تم تعديل مدة الاشتراك بنجاح');
     closeModal('editSubDurationModal');
     loadStudents();
@@ -610,3 +700,82 @@ async function changePassword() {
     document.getElementById('confirmPassword').value = '';
   } catch (e) { toast('خطأ: ' + e.message, 'error'); }
 }
+
+// ── Gemini AI Settings ────────────────────────────────────────────────────────
+async function loadSettings() {
+  try {
+    const doc = await db.collection('config').doc('ai').get();
+    if (doc.exists) {
+      const data = doc.data() || {};
+      if (data.gemini_api_key) {
+        document.getElementById('geminiApiKeyInput').value = data.gemini_api_key;
+      }
+      if (data.model) {
+        document.getElementById('geminiModelSelect').value = data.model;
+      }
+    }
+  } catch (e) {
+    console.error('Error loading AI config:', e);
+  }
+}
+
+async function saveGeminiSettings() {
+  const key = document.getElementById('geminiApiKeyInput').value.trim();
+  const model = document.getElementById('geminiModelSelect').value;
+  if (!key) {
+    toast('يرجى إدخال مفتاح API', 'error');
+    return;
+  }
+  try {
+    await db.collection('config').doc('ai').set({
+      gemini_api_key: key,
+      model: model,
+      updated_at: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    toast('✅ تم حفظ إعدادات الذكاء الاصطناعي بنجاح');
+  } catch (e) {
+    toast('خطأ في حفظ الإعدادات: ' + e.message, 'error');
+  }
+}
+
+async function testGeminiConnection() {
+  const key = document.getElementById('geminiApiKeyInput').value.trim();
+  const model = document.getElementById('geminiModelSelect').value;
+  const statusEl = document.getElementById('geminiStatusMsg');
+  if (!key) {
+    toast('يرجى إدخال مفتاح API أولاً', 'error');
+    return;
+  }
+  statusEl.innerHTML = '<span style="color:var(--text-muted)">⏳ جارٍ فحص الاتصال بـ Google Gemini...</span>';
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'أجب بكلمة واحدة فقط: جاهز' }] }]
+      })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'تم الاتصال';
+      statusEl.innerHTML = `<span style="color:#10b981;font-weight:bold">✅ الاتصال ناجح ومفتاح API يعمل بدقة! (رد النموذج: ${reply.trim()})</span>`;
+    } else {
+      statusEl.innerHTML = `<span style="color:#ef4444;font-weight:bold">❌ فشل الاتصال (${res.status}): ${data.error?.message || 'خطأ غير معروف'}</span>`;
+    }
+  } catch (e) {
+    statusEl.innerHTML = `<span style="color:#ef4444;font-weight:bold">❌ تعذر الاتصال: ${e.message}</span>`;
+  }
+}
+
+function toggleApiKeyVisibility() {
+  const input = document.getElementById('geminiApiKeyInput');
+  const btn = document.getElementById('btnToggleApiKey');
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = '🙈';
+  } else {
+    input.type = 'password';
+    btn.textContent = '👁️';
+  }
+}
+

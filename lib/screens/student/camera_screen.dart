@@ -23,19 +23,31 @@ class _CameraScreenState extends State<CameraScreen> {
   final _picker = ImagePicker();
 
   Future<void> _pickImage(ImageSource source) async {
-    final xFile = await _picker.pickImage(
-      source: source,
-      maxWidth: 1280,
-      maxHeight: 1280,
-      imageQuality: 85,
-    );
-    if (xFile == null) return;
-    final bytes = await xFile.readAsBytes();
-    setState(() {
-      _imageBytes = bytes;
-      _solution = null;
-    });
-    await _solve(bytes, xFile.mimeType ?? 'image/jpeg');
+    try {
+      final xFile = await _picker.pickImage(
+        source: source,
+        maxWidth: 1280,
+        maxHeight: 1280,
+        imageQuality: 85,
+      );
+      if (xFile == null) return;
+      final bytes = await xFile.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _imageBytes = bytes;
+        _solution = null;
+      });
+      final mime = xFile.mimeType ?? 'image/jpeg';
+      await _solve(bytes, mime);
+    } catch (e) {
+      debugPrint('CameraScreen pick error: $e');
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+            'تعذّر الوصول إلى الكاميرا أو الصور. تأكد من منح الإذن من إعدادات الجهاز.'),
+      ));
+    }
   }
 
   Future<void> _solve(Uint8List bytes, String mimeType) async {
@@ -59,6 +71,7 @@ class _CameraScreenState extends State<CameraScreen> {
             subject: subjectName,
             grade: widget.grade,
           );
+    if (!mounted) return;
     setState(() {
       _solution = answer;
       _loading = false;

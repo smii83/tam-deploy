@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
@@ -85,6 +85,9 @@ class AuthService extends ChangeNotifier {
 
   // ── Apple Sign In ─────────────────────────────────────────────────────
   Future<String?> signInWithApple({int grade = 12, String section = 'scientific'}) async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return 'تسجيل الدخول بـ Apple متاح على أجهزة Apple فقط (iPhone / iPad). يرجى المتابعة عبر Google أو البريد الإلكتروني.';
+    }
     try {
       final cred = await SignInWithApple.getAppleIDCredential(
         scopes: [
@@ -117,6 +120,9 @@ class AuthService extends ChangeNotifier {
       notifyListeners();
       return null;
     } on FirebaseAuthException catch (e) {
+      if (e.code == 'operation-not-allowed') {
+        return 'تسجيل الدخول بـ Apple غير مفعّل في Firebase Console (Sign-in providers).';
+      }
       return _authError(e.code);
     } catch (e) {
       final msg = e.toString();
@@ -133,9 +139,16 @@ class AuthService extends ChangeNotifier {
   // ── Google Sign In ─────────────────────────────────────────────────────
   Future<String?> signInWithGoogle({int grade = 12, String section = 'scientific'}) async {
     try {
-      final googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
+      final googleSignIn = GoogleSignIn(
+        clientId: kIsWeb || defaultTargetPlatform == TargetPlatform.iOS
+            ? '82581349835-39166noa7oa449lakj80plqsgegau8rm.apps.googleusercontent.com'
+            : null,
+        serverClientId:
+            '82581349835-hlk2cucplkba8e9j0aen58pqga6nk6m9.apps.googleusercontent.com',
+        scopes: ['email', 'profile'],
+      );
       final g = await googleSignIn.signIn();
-      if (g == null) return 'تم الإلغاء';
+      if (g == null) return null; // Cancelled by user — not an error
       final gAuth = await g.authentication;
       final credential = GoogleAuthProvider.credential(
         accessToken: gAuth.accessToken,
@@ -160,12 +173,18 @@ class AuthService extends ChangeNotifier {
       notifyListeners();
       return null;
     } on FirebaseAuthException catch (e) {
+      if (e.code == 'operation-not-allowed') {
+        return 'تسجيل الدخول بـ Google غير مفعّل في Firebase Console (Sign-in providers).';
+      }
       return _authError(e.code);
     } catch (e) {
       final msg = e.toString();
       // User cancelled Google Sign-In — don't show error
       if (msg.contains('canceled') || msg.contains('cancel') || msg.contains('sign_in_canceled')) {
         return null;
+      }
+      if (msg.contains('ApiException: 10') || msg.contains('10:')) {
+        return 'خطأ مطوّر في Google Sign-In (ApiException 10): يلزم إضافة بصمة SHA-1 في Firebase Console وإعادة تحميل google-services.json.';
       }
       return 'حدث خطأ أثناء تسجيل الدخول بـ Google. يرجى المحاولة مجدداً.';
     }
@@ -177,9 +196,13 @@ class AuthService extends ChangeNotifier {
     required String newPassword,
   }) async {
     try {
-      final user = _auth.currentUser!;
+      final user = _auth.currentUser;
+      final email = user?.email;
+      if (user == null || email == null || email.isEmpty) {
+        return 'لا يمكن تغيير كلمة المرور لهذا الحساب';
+      }
       final credential = EmailAuthProvider.credential(
-        email: user.email!,
+        email: email,
         password: oldPassword,
       );
       await user.reauthenticateWithCredential(credential);
@@ -187,6 +210,8 @@ class AuthService extends ChangeNotifier {
       return null;
     } on FirebaseAuthException catch (e) {
       return _authError(e.code);
+    } catch (_) {
+      return 'حدث خطأ أثناء تغيير كلمة المرور';
     }
   }
 

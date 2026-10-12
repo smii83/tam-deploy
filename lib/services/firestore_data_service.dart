@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
@@ -381,54 +382,62 @@ class FirestoreDataService {
   // SUBSCRIPTIONS
   // ══════════════════════════════════════════════════════════════════════════
 
-  /// Check if user has an active subscription.
-  static Future<bool> isSubscribed(String firebaseUid) async {
-    try {
-      // 1. Fast check: is_subscribed flag directly on user record (no composite index needed)
-      final user = await getUserByUid(firebaseUid);
-      if (user?['is_subscribed'] == true) return true;
-    } catch (_) {}
+  /// True when a subscription record is 'active' and has not expired yet.
+  /// Records written by the admin dashboard use `end_date` (YYYY-MM-DD);
+  /// records written by the Cloud Function also carry `expires_at`.
+  static bool _isRecordValid(Map<String, dynamic> d) {
+    if (d['status'] != 'active') return false;
+    final endDate = d['end_date'];
+    if (endDate is String && endDate.isNotEmpty) {
+      final today = DateTime.now().toIso8601String().substring(0, 10);
+      return endDate.compareTo(today) >= 0;
+    }
+    final expiresAt = d['expires_at'];
+    if (expiresAt is Timestamp) {
+      return expiresAt.toDate().isAfter(DateTime.now());
+    }
+    return false;
+  }
 
+  /// Check if user has an active (non-expired) subscription.
+  ///
+  /// Subscription records are the source of truth so that expiry is honoured.
+  /// The `is_subscribed` flag on the user document is only used when the user
+  /// has no subscription records at all (e.g. access granted manually).
+  ///
+  /// By default errors are swallowed and `false` is returned. Pass
+  /// [rethrowErrors] to let the caller distinguish "not subscribed" from
+  /// "could not check" (used by the splash screen for its offline fallback).
+  static Future<bool> isSubscribed(String firebaseUid,
+      {bool rethrowErrors = false}) async {
     try {
-      final now = DateTime.now().toIso8601String().substring(0, 10);
-      // 2. Check subscriptions collection
+      // Single equality filter — no composite index required.
       final snap = await _db
           .collection('subscriptions')
           .where('firebase_uid', isEqualTo: firebaseUid)
-          .where('status', isEqualTo: 'active')
           .get();
-      for (final doc in snap.docs) {
-        final data = doc.data();
-        final endDate = data['end_date'] as String?;
-        if (endDate != null && endDate.compareTo(now) >= 0) return true;
-        final expiresAt = data['expires_at'];
-        if (expiresAt is Timestamp && expiresAt.toDate().isAfter(DateTime.now())) return true;
+      if (snap.docs.isNotEmpty) {
+        return snap.docs.any((d) => _isRecordValid(d.data()));
       }
-    } catch (_) {}
-
-    return false;
+      final user = await getUserByUid(firebaseUid);
+      return user?['is_subscribed'] == true;
+    } catch (_) {
+      if (rethrowErrors) rethrow;
+      return false;
+    }
   }
 
   /// Get the active subscription record for a user (null if none).
   static Future<Map<String, dynamic>?> getActiveSubscription(
       String firebaseUid) async {
     try {
-      final now = DateTime.now().toIso8601String().substring(0, 10);
       final snap = await _db
           .collection('subscriptions')
           .where('firebase_uid', isEqualTo: firebaseUid)
-          .where('status', isEqualTo: 'active')
           .get();
       for (final doc in snap.docs) {
         final data = doc.data();
-        final endDate = data['end_date'] as String?;
-        if (endDate != null && endDate.compareTo(now) >= 0) {
-          return {'id': doc.id, ...data};
-        }
-        final expiresAt = data['expires_at'];
-        if (expiresAt is Timestamp && expiresAt.toDate().isAfter(DateTime.now())) {
-          return {'id': doc.id, ...data};
-        }
+        if (_isRecordValid(data)) return {'id': doc.id, ...data};
       }
       return null;
     } catch (_) {
@@ -436,33 +445,47 @@ class FirestoreDataService {
     }
   }
 
-  /// Activate a subscription after successful payment.
+  /// Activate a subscription after a successful store purchase.
+  ///
+  /// The document id is the store transaction id, so the same transaction can
+  /// never create two subscriptions (restore / re-delivery is idempotent).
+  /// Returns true when the user ends up with an active subscription.
   static Future<bool> activateSubscription({
     required String firebaseUid,
     required String userEmail,
     required String plan,
+    String? transactionId,
+    String platform = 'ios',
     int durationDays = 180,
   }) async {
     final start = DateTime.now();
     final end = start.add(Duration(days: durationDays));
+    final txId = (transactionId ?? '').replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    final data = <String, dynamic>{
+      'user_email': userEmail,
+      'firebase_uid': firebaseUid,
+      'plan': plan,
+      'product_id': plan,
+      'platform': platform,
+      'transaction_id': txId,
+      'status': 'active',
+      'duration_days': durationDays,
+      'start_date': start.toIso8601String().substring(0, 10),
+      'end_date': end.toIso8601String().substring(0, 10),
+      'created': FieldValue.serverTimestamp(),
+    };
     try {
-      await _db.collection('subscriptions').add({
-        'user_email': userEmail,
-        'firebase_uid': firebaseUid,
-        'plan': plan,
-        'status': 'active',
-        'start_date': start.toIso8601String().substring(0, 10),
-        'end_date': end.toIso8601String().substring(0, 10),
-        'created': FieldValue.serverTimestamp(),
-      });
-      // Also set is_subscribed flag on the user record
-      await _db
-          .collection('users')
-          .doc(firebaseUid)
-          .update({'is_subscribed': true});
+      if (txId.isEmpty) {
+        await _db.collection('subscriptions').add(data);
+      } else {
+        await _db.collection('subscriptions').doc(txId).set(data);
+      }
       return true;
-    } catch (_) {
-      return false;
+    } catch (e) {
+      // The record may already exist (restore / re-delivered transaction) —
+      // in that case the user is already subscribed.
+      debugPrint('activateSubscription write failed: $e');
+      return isSubscribed(firebaseUid);
     }
   }
 
@@ -582,17 +605,23 @@ class FirestoreDataService {
       // 2. Delete quiz_results subcollection in batches
       await _deleteSubcollection(userRef.collection('quiz_results'));
 
-      // 3. Delete subscriptions linked to this user
-      final subSnap = await _db
-          .collection('subscriptions')
-          .where('firebase_uid', isEqualTo: firebaseUid)
-          .get();
-      if (subSnap.docs.isNotEmpty) {
-        final batch = _db.batch();
-        for (final doc in subSnap.docs) {
-          batch.delete(doc.reference);
+      // 3. Delete subscriptions linked to this user (best effort — security
+      //    rules only allow admins to delete billing records, which must not
+      //    block the user from deleting their account).
+      try {
+        final subSnap = await _db
+            .collection('subscriptions')
+            .where('firebase_uid', isEqualTo: firebaseUid)
+            .get();
+        if (subSnap.docs.isNotEmpty) {
+          final batch = _db.batch();
+          for (final doc in subSnap.docs) {
+            batch.delete(doc.reference);
+          }
+          await batch.commit();
         }
-        await batch.commit();
+      } catch (e) {
+        debugPrint('deleteUserData: subscriptions not removed ($e)');
       }
 
       // 4. Delete the user document itself
