@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import '../models/interactive_lesson_model.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────────
 /// TAM Firestore Data Service  v1.0
@@ -207,6 +208,32 @@ class FirestoreDataService {
     }
     final snap = await q.orderBy('created', descending: true).get();
     return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // INTERACTIVE LESSONS (السبورة التفاعلية) — generated from summary PDFs
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /// Meta docs (status etc.) keyed by pdfId for a subject. Doc id == pdfId,
+  /// so the lesson shows up under exactly the same title as the uploaded PDF.
+  static Future<Map<String, InteractiveLessonMeta>> getInteractiveLessonMetas(
+      String subjectId) async {
+    final snap = await _db
+        .collection('interactive_lessons')
+        .where('subject_id', isEqualTo: subjectId)
+        .get();
+    return {
+      for (final d in snap.docs)
+        d.id: InteractiveLessonMeta.fromMap(d.data(), d.id),
+    };
+  }
+
+  /// Full slide content for one lesson (loaded when the student taps it).
+  static Future<InteractiveLesson?> getInteractiveLesson(String pdfId) async {
+    final doc = await _db.collection('interactive_content').doc(pdfId).get();
+    final data = doc.data();
+    if (!doc.exists || data == null) return null;
+    return InteractiveLesson.fromMap(data, pdfId);
   }
 
   /// Get the download URL for a PDF file stored in Firebase Storage.

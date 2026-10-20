@@ -52,3 +52,8 @@ assets/env
 android/key.properties
 *.jks
 *.keystore
+
+# Local caches
+.gradle/
+android/.gradle/
+.firebase/

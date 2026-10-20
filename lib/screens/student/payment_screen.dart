@@ -28,6 +28,9 @@ class _PaymentScreenState extends State<PaymentScreen>
   bool _available = false, _loading = true, _purchasing = false;
   bool _successShown = false;
   List<ProductDetails> _products = [];
+  // Last reason the store returned no product (shown to help diagnose
+  // App Store Connect / Play Console configuration problems).
+  String _iapIssue = '';
   StreamSubscription<List<PurchaseDetails>>? _purchaseSub;
 
   late AnimationController _pulseCtrl;
@@ -87,11 +90,17 @@ class _PaymentScreenState extends State<PaymentScreen>
       }
       final res =
           await InAppPurchase.instance.queryProductDetails({_productId});
+      _iapIssue = '';
       if (res.error != null) {
         debugPrint('IAP: product query error: ${res.error?.message}');
+        _iapIssue =
+            '${res.error?.code ?? ''} ${res.error?.message ?? ''}'.trim();
       }
       if (res.notFoundIDs.isNotEmpty) {
         debugPrint('IAP: product(s) not found in store: ${res.notFoundIDs}');
+        if (_iapIssue.isEmpty) {
+          _iapIssue = 'Product not found in store: ${res.notFoundIDs.join(', ')}';
+        }
       }
       if (!mounted) return;
       setState(() {
@@ -100,6 +109,7 @@ class _PaymentScreenState extends State<PaymentScreen>
       });
     } catch (e) {
       debugPrint('IAP: init failed: $e');
+      _iapIssue = e.toString();
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -236,9 +246,10 @@ class _PaymentScreenState extends State<PaymentScreen>
       await _initIAP();
       if (!mounted) return;
       if (_products.isEmpty) {
-        _snack(_available
+        final base = _available
             ? 'المنتج غير متاح حالياً، حاول لاحقاً'
-            : 'متجر التطبيقات غير متاح على هذا الجهاز حالياً');
+            : 'متجر التطبيقات غير متاح على هذا الجهاز حالياً';
+        _snack(_iapIssue.isEmpty ? base : '$base\n($_iapIssue)');
         return;
       }
     }

@@ -101,6 +101,22 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // ── Interactive lessons (slides generated from summary PDFs) ──────────
+    // Written by the generateInteractiveLesson Cloud Function (Admin SDK).
+    match /interactive_lessons/{lessonId} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+    match /interactive_content/{lessonId} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // ── Q&A cache for lessonAsk (server-side only) ────────────────────────
+    match /lesson_qa_cache/{key} {
+      allow read, write: if false;
+    }
+
     // ── Countries (public config) ─────────────────────────────────────────
     match /countries/{countryId} {
       allow read:  if isAuth();

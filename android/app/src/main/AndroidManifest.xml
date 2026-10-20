@@ -11,6 +11,13 @@
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-feature android:name="android.hardware.microphone" android:required="false"/>
 
+    <!-- Speech recognition for the interactive lesson tap-to-talk (Android 11+) -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
+        </intent>
+    </queries>
+
     <application
         android:label="منصة تم التعليمية"
         android:name="${applicationName}"

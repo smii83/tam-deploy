@@ -13,6 +13,8 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
 const storage = firebase.storage();
+// Cloud Functions (same region as the deployed callables)
+const functions = firebase.app().functions('me-central1');
 
 // Admin email whitelist — only these emails can log in
 const ADMIN_EMAILS = ['admin@tam.com', 'tamteach01@gmail.com', 'tam.app83@gmail.com', 'tm.app83@gmail.com'];
@@ -314,15 +316,52 @@ async function loadPdfSubjects() {
   const sel = document.getElementById('pdfSubjectFilter'); sel.innerHTML = '<option value="">— اختر المادة —</option>'; if (!gid) return;
   try { const subs = await fsList('subjects', { where: [['grade_id', '==', gid]], orderBy: 'sort_order' }); subs.forEach(s => { const o = document.createElement('option'); o.value = s.id; o.textContent = s.name_ar; sel.appendChild(o); }); } catch { }
 }
+// ── Interactive lessons (السبورة التفاعلية) ─────────────────────────────────
+const generatingLessons = new Set();
+function lessonStatusBadge(pdf, il) {
+  if (pdf.pdf_type !== 'summary') return '<span style="opacity:.4">—</span>';
+  if (generatingLessons.has(pdf.id) || (il && il.status === 'processing')) return '<span class="badge badge-blue">⏳ جارٍ التوليد</span>';
+  if (!il) return '<span style="opacity:.5">لم يُولَّد</span>';
+  if (il.status === 'error') return `<span class="badge badge-red" title="${(il.error || '').replace(/"/g, '')}">❌ فشل</span>`;
+  if (il.status === 'ready') {
+    const audio = il.audio_complete ? '🔊' : `🔇 ${il.audio_done || 0}/${il.audio_total || 0}`;
+    return `<span class="badge badge-green">✅ جاهز</span> <small>${audio}</small>`;
+  }
+  return '—';
+}
+async function generateLessonFor(pdfId, mode = 'full') {
+  if (generatingLessons.has(pdfId)) return;
+  generatingLessons.add(pdfId);
+  toast('⏳ بدأ توليد الشرح التفاعلي (قد يستغرق عدة دقائق)…');
+  loadPdfs();
+  try {
+    const call = functions.httpsCallable('generateInteractiveLesson', { timeout: 540000 });
+    const r = (await call({ pdfId, mode })).data || {};
+    toast(r.audioDone < r.audioTotal ? `✅ جاهز — الصوت ${r.audioDone}/${r.audioTotal} (اضغط 🔊 لإكماله)` : '✅ الشرح التفاعلي جاهز');
+  } catch (e) {
+    toast('خطأ في التوليد: ' + (e.message || e), 'error');
+  } finally {
+    generatingLessons.delete(pdfId);
+    loadPdfs();
+  }
+}
 async function loadPdfs() {
   const sid = document.getElementById('pdfSubjectFilter').value;
   if (!sid) { document.getElementById('pdfsList').innerHTML = '<p class="empty-msg">اختر مادة</p>'; return; }
   try {
     const items = await fsList('pdfs', { where: [['subject_id', '==', sid]] });
     if (!items.length) { document.getElementById('pdfsList').innerHTML = '<p class="empty-msg">لا توجد ملفات</p>'; return; }
+    let ilMap = {};
+    try { (await fsList('interactive_lessons', { where: [['subject_id', '==', sid]] })).forEach(x => ilMap[x.id] = x); } catch (e) { console.warn('interactive_lessons load failed', e); }
     const types = { summary: 'ملخص', exam_answer: 'حل امتحان', worksheet: 'ورقة عمل' };
-    let h = '<table><thead><tr><th>العنوان</th><th>النوع</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody>';
-    items.forEach(p => { h += `<tr><td>${p.title_ar || p.name || ''}</td><td><span class="badge badge-blue">${types[p.pdf_type] || p.pdf_type || '—'}</span></td><td><label class="toggle-switch"><input type="checkbox" ${p.is_active ? 'checked' : ''} onchange="togglePdf('${p.id}',this.checked)"/><div class="toggle-track"></div></label></td><td class="actions-cell"><button class="btn-icon btn-danger" onclick="deletePdf('${p.id}')">🗑️</button></td></tr>`; });
+    let h = '<table><thead><tr><th>العنوان</th><th>النوع</th><th>الشرح التفاعلي</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody>';
+    items.forEach(p => {
+      const il = ilMap[p.id];
+      const isSummary = p.pdf_type === 'summary';
+      const genBtn = isSummary ? `<button class="btn-icon" title="توليد / إعادة توليد الشرح التفاعلي" onclick="generateLessonFor('${p.id}')">🎬</button>` : '';
+      const audioBtn = (isSummary && il && il.status === 'ready' && !il.audio_complete) ? `<button class="btn-icon" title="إكمال الصوت الناقص" onclick="generateLessonFor('${p.id}','audio')">🔊</button>` : '';
+      h += `<tr><td>${p.title_ar || p.name || ''}</td><td><span class="badge badge-blue">${types[p.pdf_type] || p.pdf_type || '—'}</span></td><td>${lessonStatusBadge(p, il)}</td><td><label class="toggle-switch"><input type="checkbox" ${p.is_active ? 'checked' : ''} onchange="togglePdf('${p.id}',this.checked)"/><div class="toggle-track"></div></label></td><td class="actions-cell">${genBtn}${audioBtn}<button class="btn-icon btn-danger" onclick="deletePdf('${p.id}')">🗑️</button></td></tr>`;
+    });
     document.getElementById('pdfsList').innerHTML = h + '</tbody></table>';
   } catch (e) { document.getElementById('pdfsList').innerHTML = '<p class="empty-msg">خطأ: ' + e.message + '</p>'; }
 }
@@ -352,7 +391,7 @@ async function savePdf() {
       await ref.put(file);
       fileUrl = await ref.getDownloadURL();
     }
-    await fsCreate('pdfs', {
+    const created = await fsCreate('pdfs', {
       subject_id: sid,
       title_ar: titleAr,
       name: titleAr,
@@ -364,9 +403,17 @@ async function savePdf() {
     toast('تم رفع الملف');
     closeModal('pdfModal');
     loadPdfs();
+    // Every uploaded summary automatically becomes an interactive lesson with the same title.
+    if (pdfType === 'summary' && fileUrl) generateLessonFor(created.id);
   } catch (e) { toast('خطأ: ' + e.message, 'error'); }
 }
-async function deletePdf(id) { if (!confirm('حذف؟')) return; await fsDelete('pdfs', id); toast('تم الحذف'); loadPdfs(); }
+async function deletePdf(id) {
+  if (!confirm('حذف؟')) return;
+  await fsDelete('pdfs', id);
+  // Remove the matching interactive lesson (ignore if it never existed)
+  try { await fsDelete('interactive_lessons', id); await fsDelete('interactive_content', id); } catch (e) { }
+  toast('تم الحذف'); loadPdfs();
+}
 
 // ── Students ──────────────────────────────────────────────────────────────────
 let allStudents = [];

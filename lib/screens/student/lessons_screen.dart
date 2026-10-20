@@ -7,6 +7,9 @@ import '../../utils/app_theme.dart';
 import '../../widgets/animated_pressable.dart';
 import '../../widgets/skeleton_loader.dart';
 import 'video_player_screen.dart';
+import 'slide_lesson_screen.dart';
+import '../../models/interactive_lesson_model.dart';
+import '../../widgets/interactive_lessons_section.dart';
 
 class LessonsScreen extends StatefulWidget {
   /// The Firestore subject record id
@@ -28,6 +31,9 @@ class LessonsScreen extends StatefulWidget {
 
 class _LessonsScreenState extends State<LessonsScreen> {
   List<Map<String, dynamic>> _lessons = [];
+  // Interactive lessons: one entry per uploaded summary PDF (same name)
+  List<Map<String, dynamic>> _summaries = [];
+  Map<String, InteractiveLessonMeta> _metas = {};
   Set<String> _completed = {};
   bool _loading = true;
   String? _error;
@@ -49,10 +55,23 @@ class _LessonsScreenState extends State<LessonsScreen> {
         FirestoreDataService.getLessons(widget.subjectId),
         if (uid.isNotEmpty) FirestoreDataService.getCompletedLessons(uid),
       ]);
+      // Interactive lessons are optional: never let them break the video list.
+      List<Map<String, dynamic>> summaries = [];
+      Map<String, InteractiveLessonMeta> metas = {};
+      try {
+        final extra = await Future.wait([
+          FirestoreDataService.getPDFs(widget.subjectId, 'summary'),
+          FirestoreDataService.getInteractiveLessonMetas(widget.subjectId),
+        ]);
+        summaries = extra[0] as List<Map<String, dynamic>>;
+        metas = extra[1] as Map<String, InteractiveLessonMeta>;
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _lessons = results[0] as List<Map<String, dynamic>>;
         _completed = uid.isNotEmpty ? results[1] as Set<String> : <String>{};
+        _summaries = summaries;
+        _metas = metas;
         _loading = false;
       });
     } catch (e) {
@@ -62,6 +81,15 @@ class _LessonsScreenState extends State<LessonsScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _refreshCompleted() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final done = await FirestoreDataService.getCompletedLessons(uid);
+      if (mounted) setState(() => _completed = done);
+    } catch (_) {}
   }
 
   Future<void> _markComplete(String lessonId) async {
@@ -328,7 +356,33 @@ class _LessonsScreenState extends State<LessonsScreen> {
         ),
       ];
     }
+    final interactive = _summaries.isEmpty
+        ? null
+        : SliverToBoxAdapter(
+            child: InteractiveLessonsSection(
+              summaries: _summaries,
+              metas: _metas,
+              completed: _completed,
+              color: color,
+              isDark: p.isDark,
+              isAr: p.isAr,
+              onOpen: (pdfId, title) async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        SlideLessonScreen(pdfId: pdfId, title: title),
+                  ),
+                );
+                if (mounted) _refreshCompleted(); // show ✓ without a skeleton flash
+              },
+            ),
+          );
+
     if (_lessons.isEmpty) {
+      if (interactive != null) {
+        return [interactive, const SliverToBoxAdapter(child: SizedBox(height: 32))];
+      }
       return [
         SliverFillRemaining(
           hasScrollBody: false,
@@ -341,6 +395,7 @@ class _LessonsScreenState extends State<LessonsScreen> {
         _lessons.where((l) => _completed.contains(l['id'] as String)).length;
 
     return [
+      if (interactive != null) interactive,
       SliverToBoxAdapter(
         child: _buildProgressCard(p, color, completedCount, _lessons.length),
       ),

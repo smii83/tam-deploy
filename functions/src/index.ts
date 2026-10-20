@@ -395,3 +395,7 @@ export const adminSetUserPassword = onCall(
     return { success: true };
   }
 );
+
+// ── Interactive lessons (slides + TTS + on-demand Q&A) ─────────────────────
+export * from "./interactive";
+

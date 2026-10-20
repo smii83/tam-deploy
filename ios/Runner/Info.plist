@@ -21,8 +21,11 @@
     <key>NSPhotoLibraryAddUsageDescription</key>
     <string>نحتاج إذنك لحفظ الصور في مكتبتك</string>
 
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>نستخدم التعرف على الصوت لتحويل سؤالك للأستاذ الذكي أثناء الدرس إلى نص. لا يتم حفظ تسجيلاتك.</string>
+
     <key>NSMicrophoneUsageDescription</key>
-    <string>نستخدم الميكروفون عند تصوير الفيديو فقط</string>
+    <string>نستخدم الميكروفون عند تصوير الفيديو، وعند طرح سؤال صوتي على الأستاذ الذكي أثناء الدرس</string>
 
     <!-- ── App Store Export Compliance ───────────────────────────────── -->
     <!-- Set to false: the app uses Apple's built-in encryption (HTTPS/TLS) only -->
