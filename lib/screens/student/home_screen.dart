@@ -569,6 +569,7 @@ class _HomeScreenState extends State<HomeScreen> {
         MaterialPageRoute(
           builder: (_) => SubjectScreen(
             subject: subject,
+            subjectId: subject['id'],
             grade: (p.userData?['grade'] ?? 12),
           ),
         ),

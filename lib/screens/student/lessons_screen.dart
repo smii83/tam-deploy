@@ -35,12 +35,16 @@ class _LessonsScreenState extends State<LessonsScreen> {
   List<Map<String, dynamic>> _summaries = [];
   Map<String, InteractiveLessonMeta> _metas = {};
   Set<String> _completed = {};
+  // ValueNotifier to manage completed set without setState repetitions
+  late ValueNotifier<Set<String>> _completedNotifier;
   bool _loading = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    // initialize notifier with empty set; will be synced after loading data
+    _completedNotifier = ValueNotifier<Set<String>>({});
     _load();
   }
 
@@ -70,6 +74,8 @@ class _LessonsScreenState extends State<LessonsScreen> {
       setState(() {
         _lessons = results[0] as List<Map<String, dynamic>>;
         _completed = uid.isNotEmpty ? results[1] as Set<String> : <String>{};
+        // sync notifier with completed set
+        _completedNotifier.value = Set<String>.from(_completed);
         _summaries = summaries;
         _metas = metas;
         _loading = false;
@@ -88,7 +94,12 @@ class _LessonsScreenState extends State<LessonsScreen> {
     if (uid == null) return;
     try {
       final done = await FirestoreDataService.getCompletedLessons(uid);
-      if (mounted) setState(() => _completed = done);
+      if (mounted) {
+        setState(() {
+          _completed = done;
+          _completedNotifier.value = Set<String>.from(_completed);
+        });
+      }
     } catch (_) {}
   }
 
@@ -97,7 +108,7 @@ class _LessonsScreenState extends State<LessonsScreen> {
     if (uid == null) return;
     await FirestoreDataService.markLessonComplete(uid, lessonId);
     if (!mounted) return;
-    setState(() => _completed.add(lessonId));
+    setState(() { _completed.add(lessonId); _completedNotifier.value = Set<String>.from(_completed); });
   }
 
   Color _toCalmColor(Color color) {
@@ -362,7 +373,7 @@ class _LessonsScreenState extends State<LessonsScreen> {
             child: InteractiveLessonsSection(
               summaries: _summaries,
               metas: _metas,
-              completed: _completed,
+              completed: _completed, completedNotifier: _completedNotifier,
               color: color,
               isDark: p.isDark,
               isAr: p.isAr,

@@ -161,10 +161,12 @@ class FirestoreDataService {
     final snap = await _db
         .collection('subjects')
         .where('grade_id', isEqualTo: gradeId)
-        .where('is_visible', isEqualTo: true)
-        .orderBy('sort_order')
         .get();
-    return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+    var list = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+    list = list.where((s) => s['is_visible'] != false).toList();
+    list.sort((a, b) => ((a['sort_order'] as num?) ?? 0)
+        .compareTo((b['sort_order'] as num?) ?? 0));
+    return list;
   }
 
   /// Fetch subjects for a grade number (looks up grade first)
@@ -185,10 +187,12 @@ class FirestoreDataService {
     final snap = await _db
         .collection('lessons')
         .where('subject_id', isEqualTo: subjectId)
-        .where('is_active', isEqualTo: true)
-        .orderBy('sort_order')
         .get();
-    return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+    var list = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+    list = list.where((l) => l['is_active'] != false).toList();
+    list.sort((a, b) => ((a['sort_order'] as num?) ?? 0)
+        .compareTo((b['sort_order'] as num?) ?? 0));
+    return list;
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -199,15 +203,24 @@ class FirestoreDataService {
   /// type: 'summary' | 'exam_answer' | 'worksheet' | '' (all)
   static Future<List<Map<String, dynamic>>> getPDFs(String subjectId,
       [String type = '']) async {
-    Query<Map<String, dynamic>> q = _db
+    final snap = await _db
         .collection('pdfs')
         .where('subject_id', isEqualTo: subjectId)
-        .where('is_active', isEqualTo: true);
+        .get();
+    var list = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+    list = list.where((p) => p['is_active'] != false).toList();
     if (type.isNotEmpty) {
-      q = q.where('pdf_type', isEqualTo: type);
+      list = list.where((p) => p['pdf_type'] == type).toList();
     }
-    final snap = await q.orderBy('created', descending: true).get();
-    return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+    list.sort((a, b) {
+      final aDate = a['created'] ?? a['created_at'];
+      final bDate = b['created'] ?? b['created_at'];
+      if (aDate == null && bDate == null) return 0;
+      if (aDate == null) return 1;
+      if (bDate == null) return -1;
+      return bDate.toString().compareTo(aDate.toString());
+    });
+    return list;
   }
 
   // ══════════════════════════════════════════════════════════════════════════

@@ -29,7 +29,12 @@ service cloud.firestore {
     // Admins have full access (for dashboard management).
     match /users/{userId} {
       allow read:   if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) || isAdmin();
+      // A user may create ONLY their own doc and may not self-assign sensitive
+      // fields (the app writes is_subscribed/is_blocked = false on signup).
+      allow create: if isAdmin() || (isOwner(userId)
+                    && !request.resource.data.keys().hasAny(['is_admin', 'role'])
+                    && request.resource.data.get('is_subscribed', false) == false
+                    && request.resource.data.get('is_blocked', false) == false);
       // Admins have full update rights; regular users can only update their own non-sensitive fields
       allow update: if isAdmin() || (isOwner(userId)
                     && !request.resource.data.diff(resource.data).affectedKeys()
@@ -111,6 +116,11 @@ service cloud.firestore {
       allow read:  if isAuth();
       allow write: if isAdmin();
     }
+    // MP3 narration clips (base64) — used when Firebase Storage is unavailable.
+    match /interactive_audio/{clipId} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
 
     // ── Q&A cache for lessonAsk (server-side only) ────────────────────────
     match /lesson_qa_cache/{key} {
@@ -124,8 +134,10 @@ service cloud.firestore {
     }
 
     // ── Global Config (AI settings, etc.) ─────────────────────────────────
+    // config/ai holds the Gemini API key: ADMIN ONLY. Other config docs are
+    // readable by signed-in users.
     match /config/{configId} {
-      allow read:  if isAuth();
+      allow read:  if (isAuth() && configId != 'ai') || isAdmin();
       allow write: if isAdmin();
     }
 

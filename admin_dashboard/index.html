@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=20261023_v1" />
 </head>
 
 <body>
@@ -356,7 +356,22 @@
         <button class="modal-close" onclick="closeModal('lessonModal')">✕</button>
       </div>
       <div class="modal-body">
+        <div id="lessonModalError" class="modal-alert error hidden"></div>
         <input type="hidden" id="lessonId" />
+        <div class="form-row">
+          <div class="form-group">
+            <label>الصف الدراسي <span style="color:#ef4444">*</span></label>
+            <select id="lessonModalGrade" onchange="onLessonModalGradeChange()">
+              <option value="">— اختر الصف —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>المادة الدراسية <span style="color:#ef4444">*</span></label>
+            <select id="lessonModalSubject">
+              <option value="">— اختر المادة —</option>
+            </select>
+          </div>
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label>عنوان الدرس (عربي)</label>
@@ -388,7 +403,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn-secondary" onclick="closeModal('lessonModal')">إلغاء</button>
-        <button class="btn-primary" onclick="saveLesson()">حفظ الدرس</button>
+        <button class="btn-primary" id="btnSaveLesson" onclick="saveLesson()">حفظ الدرس</button>
       </div>
     </div>
   </div>
@@ -397,45 +412,96 @@
   <div id="pdfModal" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
-        <h3>رفع ملف PDF</h3>
+        <h3 id="pdfModalTitle">رفع وحفظ ملف PDF</h3>
         <button class="modal-close" onclick="closeModal('pdfModal')">✕</button>
       </div>
       <div class="modal-body">
+        <div id="pdfModalError" class="modal-alert error hidden"></div>
         <input type="hidden" id="pdfId" />
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>الصف الدراسي <span style="color:#ef4444">*</span></label>
+            <select id="pdfModalGrade" onchange="onPdfModalGradeChange()">
+              <option value="">— اختر الصف —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>المادة الدراسية <span style="color:#ef4444">*</span></label>
+            <select id="pdfModalSubject">
+              <option value="">— اختر المادة —</option>
+            </select>
+          </div>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label>العنوان (عربي)</label>
             <input type="text" id="pdfTitleAr" placeholder="ملخص الفصل الأول" />
           </div>
           <div class="form-group">
-            <label>العنوان (إنجليزي)</label>
+            <label>العنوان (إنجليزي - اختياري)</label>
             <input type="text" id="pdfTitleEn" placeholder="Chapter 1 Summary" />
           </div>
         </div>
+
         <div class="form-group">
-          <label>النوع</label>
+          <label>نوع الملف</label>
           <select id="pdfType">
-            <option value="summary">ملخص</option>
-            <option value="exam_answer">حل امتحان</option>
-            <option value="worksheet">ورقة عمل</option>
+            <option value="summary">ملخص (Summary - يولد سبورة تفاعلية)</option>
+            <option value="exam_answer">حل امتحان (Exam Answer)</option>
+            <option value="worksheet">ورقة عمل (Worksheet)</option>
           </select>
         </div>
+
+        <!-- Mode switcher -->
         <div class="form-group">
-          <label>ملف PDF</label>
+          <label>طريقة إضافة الملف <span style="color:#ef4444">*</span></label>
+          <div class="tab-switch">
+            <button type="button" class="tab-btn active" id="tabBtnLink" onclick="setPdfMode('link')">🔗 رابط ملف مباشر (Google Drive - سريع ومجاني)</button>
+            <button type="button" class="tab-btn" id="tabBtnUpload" onclick="setPdfMode('upload')">📁 رفع ملف من الجهاز</button>
+          </div>
+        </div>
+
+        <div id="pdfLinkContainer" class="form-group">
+          <input type="url" id="pdfDirectUrl" placeholder="https://drive.google.com/file/d/.../view أو رابط مباشر" onchange="this.value = formatDirectPdfUrl(this.value)" />
+          <div class="hint-text" style="margin-top:8px; line-height:1.6; font-size:0.83rem; color:var(--text-muted);">
+            💡 <strong>كيف تضع رابط Google Drive؟</strong><br/>
+            1. ارفع ملف الـ PDF إلى حسابك في Google Drive.<br/>
+            2. اضغط زر المشاركة (Share) واجعله <strong>"أي شخص لديه الرابط" (Anyone with the link)</strong>.<br/>
+            3. الصق الرابط هنا وسيتم تحويله تلقائياً ليعمل داخل التطبيق للطلاب مباشرة!
+          </div>
+        </div>
+
+        <div id="pdfUploadContainer" class="form-group hidden">
           <div class="file-drop" id="fileDropZone" onclick="document.getElementById('pdfFileInput').click()">
-            <span>📤 اسحب الملف هنا أو انقر للاختيار</span>
+            <span id="fileDropLabel">📤 اسحب ملف الـ PDF هنا أو انقر للاختيار</span>
             <input type="file" id="pdfFileInput" accept=".pdf" style="display:none" onchange="onFileSelected(this)" />
           </div>
-          <div id="fileSelectedName" class="hint-text"></div>
+          <div id="fileSelectedName" class="hint-text" style="font-weight:600; color:var(--purple-lt); margin-top:6px;"></div>
+          
+          <div id="pdfUploadProgressBox" class="hidden" style="margin-top:10px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.82rem; color:var(--text-muted); margin-bottom:4px;">
+              <span id="pdfProgressLabel">جارٍ رفع الملف إلى السحابة...</span>
+              <span id="pdfProgressPercent">0%</span>
+            </div>
+            <div class="progress-container">
+              <div id="pdfProgressBar" class="progress-bar"></div>
+            </div>
+          </div>
+          <div class="hint-text" style="margin-top:8px; font-size:0.8rem; color:#94a3b8;">
+            ⚠️ ملاحظة: الرفع المباشر من الجهاز يتطلب تفعيل Firebase Storage في مشروعك. إن واجهت بطئاً أو توقفاً، استخدم تبويب <strong>"🔗 رابط ملف مباشر"</strong>.
+          </div>
         </div>
-        <div class="form-check">
+
+        <div class="form-check" style="margin-top:0.8rem">
           <input type="checkbox" id="pdfActive" checked />
-          <label for="pdfActive">مرئي للطلاب</label>
+          <label for="pdfActive">مرئي للطلاب داخل التطبيق</label>
         </div>
       </div>
       <div class="modal-footer">
         <button class="btn-secondary" onclick="closeModal('pdfModal')">إلغاء</button>
-        <button class="btn-primary" onclick="savePdf()">رفع الملف</button>
+        <button class="btn-primary" id="btnSavePdf" onclick="savePdf()">رفع وحفظ الملف</button>
       </div>
     </div>
   </div>
@@ -579,7 +645,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
-  <script src="app.js?v=20261020_v7"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+  <script src="app.js?v=20261023_v7"></script>
 </body>
 
 </html>

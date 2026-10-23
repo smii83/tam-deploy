@@ -57,3 +57,8 @@ android/key.properties
 .gradle/
 android/.gradle/
 .firebase/
+**/node_modules/
+node_modules/
+scratch/audio_tools/
+scratch/generate_physics_lesson.js
+scratch/seed_firestore_curriculum.js

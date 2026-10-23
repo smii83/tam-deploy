@@ -383,6 +383,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   String? _error;
   int _currentPage = 0;
   int _totalPages = 0;
+  // Simple in-memory cache for downloaded PDFs (url -> local file path)
+  static final Map<String, String> _pdfCache = {};
 
   @override
   void initState() {
@@ -400,14 +402,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   Future<void> _downloadAndOpen() async {
-    try {
+    try { final cached = _pdfCache[widget.url]; if (cached != null && await File(cached).exists()) { if (mounted) setState(() { _localPath = cached; _loading = false; }); return; }
       final response = await http.get(Uri.parse(widget.url));
       if (response.statusCode == 200) {
         final dir = await getTemporaryDirectory();
         final fileName =
             'tam_pdf_${DateTime.now().millisecondsSinceEpoch}.pdf';
         final file = File('${dir.path}/$fileName');
-        await file.writeAsBytes(response.bodyBytes);
+        await file.writeAsBytes(response.bodyBytes); _pdfCache[widget.url] = file.path;
         if (mounted) {
           setState(() {
             _localPath = file.path;

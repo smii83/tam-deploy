@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:video_player/video_player.dart';
@@ -197,11 +201,46 @@ class LessonPlayerController extends ChangeNotifier {
 
   // ── Audio (pre-generated MP3 from Firebase Storage) ────────────────────────
   Future<VideoPlayerController> _createAudio(String path) async {
+    // `fs:<collection>/<doc>` → base64 MP3 stored in Firestore (no Storage needed)
+    if (path.startsWith('fs:')) {
+      final ref = path.substring(3);
+      final cached = _urlCache[path];
+      VideoPlayerController c;
+      if (kIsWeb) {
+        final uri = cached ??
+            (_urlCache[path] =
+                'data:audio/mpeg;base64,${await _loadClipB64(ref)}');
+        c = VideoPlayerController.networkUrl(Uri.parse(uri));
+      } else {
+        var file = cached == null ? null : File(cached);
+        if (file == null || !await file.exists()) {
+          final dir = await getTemporaryDirectory();
+          file = File('${dir.path}/${ref.replaceAll('/', '_')}.mp3');
+          if (!await file.exists() || await file.length() == 0) {
+            await file.writeAsBytes(base64Decode(await _loadClipB64(ref)));
+          }
+          _urlCache[path] = file.path;
+        }
+        c = VideoPlayerController.file(file);
+      }
+      await c.initialize();
+      return c;
+    }
     final url = _urlCache[path] ??
-        (_urlCache[path] = await FirebaseStorage.instance.ref(path).getDownloadURL());
+        (_urlCache[path] =
+            await FirebaseStorage.instance.ref(path).getDownloadURL());
     final c = VideoPlayerController.networkUrl(Uri.parse(url));
     await c.initialize();
     return c;
+  }
+
+  Future<String> _loadClipB64(String ref) async {
+    final snap = await FirebaseFirestore.instance.doc(ref).get();
+    final data = snap.data()?['data'] as String?;
+    if (data == null || data.isEmpty) {
+      throw Exception('audio clip missing: $ref');
+    }
+    return data;
   }
 
   void _prefetch(int i) {
@@ -270,7 +309,8 @@ class LessonPlayerController extends ChangeNotifier {
     } catch (e) {
       debugPrint('LessonPlayer TTS speak: $e');
       // Silent fallback: advance by reading time so the lesson never freezes.
-      Future.delayed(Duration(milliseconds: (s.duration * 1000 / _speed).round()), () {
+      Future.delayed(
+          Duration(milliseconds: (s.duration * 1000 / _speed).round()), () {
         if (gen == _gen && _playing && _usingTts) _onSlideDone(gen);
       });
     }
@@ -303,7 +343,8 @@ class LessonPlayerController extends ChangeNotifier {
     if (a != null && a.value.isInitialized) {
       _slideElapsed = a.value.position.inMilliseconds / 1000.0;
     } else if (_usingTts && _playing && !interrupted) {
-      _slideElapsed = (_slideElapsed + dt * _speed).clamp(0, current.duration * 0.98);
+      _slideElapsed =
+          (_slideElapsed + dt * _speed).clamp(0, current.duration * 0.98);
     }
     double before = 0;
     for (var i = 0; i < _index; i++) {
@@ -435,7 +476,8 @@ class LessonPlayerController extends ChangeNotifier {
         );
       }
       if (!_sttReady) {
-        _fail('لازم تسمح للتطبيق باستخدام الميكروفون والتعرف على الكلام. تقدر تكتب سؤالك بدلاً من ذلك.');
+        _fail(
+            'لازم تسمح للتطبيق باستخدام الميكروفون. تقدر تكتب سؤالك بدلاً من ذلك.');
         return;
       }
       final locale = await _pickArabicLocale();
@@ -456,7 +498,7 @@ class LessonPlayerController extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('STT listen failed: $e');
-      _fail('تعذّر تشغيل الميكروفون. اكتب سؤالك بدلاً من ذلك.');
+      _fail('ما قدرت أشغل المايك. تقدر تكتب سؤالك بدلاً من ذلك.');
     }
   }
 
@@ -528,10 +570,10 @@ class LessonPlayerController extends ChangeNotifier {
       await _speakAnswer(a);
     } on FirebaseFunctionsException catch (e) {
       if (token != _askToken || _disposed) return;
-      _fail(e.message ?? 'تعذّر الاتصال بالأستاذ الذكي حالياً.');
+      _fail(e.message ?? 'ما قدرت أوصل سؤالك للأستاذ الحين. جرّب مرة ثانية.');
     } catch (_) {
       if (token != _askToken || _disposed) return;
-      _fail('تعذّر الاتصال بالأستاذ الذكي. تأكد من الإنترنت وحاول مرة ثانية.');
+      _fail('تعذّر الوصول للأستاذ الذكي. تأكد من الإنترنت وحاول مرة ثانية.');
     }
   }
 

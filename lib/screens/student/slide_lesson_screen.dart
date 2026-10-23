@@ -77,7 +77,7 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'تعذّر تحميل الدرس. تأكد من الاتصال وحاول مرة أخرى.';
+        _error = 'تعذّر تحميل الدرس. تأكد من الاتصال وحاول مرة ثانية.';
         _loading = false;
       });
     }
@@ -103,7 +103,7 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('أنهيت الدرس 🎉', style: TextStyle(fontFamily: 'Cairo')),
+        content: Text('برافو — أنهيت الدرس كاملاً 🎉', style: TextStyle(fontFamily: 'Cairo')),
         duration: Duration(seconds: 3),
       ),
     );
@@ -173,7 +173,7 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
                       onPressed: _load,
                       style: FilledButton.styleFrom(backgroundColor: _pal.accent),
                       icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('إعادة المحاولة',
+                      label: const Text('جرّب مرة ثانية',
                           style: TextStyle(fontFamily: 'Cairo')),
                     ),
                   ],
@@ -349,7 +349,7 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
     switch (c.askPhase) {
       case AskPhase.listening:
         body = _overlayText(
-          c.question.isEmpty ? 'أسمعك... تكلّم الآن 🎙' : c.question,
+          c.question.isEmpty ? 'أسمعك... تكلّم الحين 🎙' : c.question,
           dim: c.question.isEmpty,
         );
       case AskPhase.thinking:
@@ -369,7 +369,7 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
               ),
             _ThinkingDots(color: p.accent),
             const SizedBox(height: 10),
-            Text('الأستاذ يفكر...',
+            Text('الأستاذ يفكر ويجهز الإجابة...',
                 style: TextStyle(
                     color: p.textSec, fontFamily: 'Cairo', fontSize: 12.5)),
           ],
@@ -433,7 +433,7 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
                     child: Icon(Icons.auto_awesome_rounded, size: 17, color: p.accent),
                   ),
                   const SizedBox(width: 10),
-                  Text('الأستاذ الذكي',
+                  Text('الأستاذ يشرح',
                       style: TextStyle(
                         color: p.text,
                         fontFamily: 'Almarai',
@@ -442,7 +442,7 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
                       )),
                   const Spacer(),
                   if (c.answerSpeaking)
-                    Icon(Icons.volume_up_rounded, size: 18, color: p.accent),
+                    Icon(Icons.graphic_eq_rounded, size: 18, color: p.accent),
                 ],
               ),
               const SizedBox(height: 10),
@@ -809,7 +809,7 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
                         borderRadius: BorderRadius.circular(13)),
                   ),
                   icon: const Icon(Icons.send_rounded, size: 18),
-                  label: const Text('اسأل',
+                  label: const Text('ارسل سؤالك',
                       style: TextStyle(
                           fontFamily: 'Cairo', fontWeight: FontWeight.w800)),
                 ),

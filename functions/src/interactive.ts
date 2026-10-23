@@ -50,8 +50,10 @@ const TEXT_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flas
 const DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts";
 const DEFAULT_TTS_VOICE = "Kore";
 const DEFAULT_TTS_STYLE =
-  "Say in a warm, clear, calm voice of a friendly Gulf Arabic school teacher, " +
-  "at a steady medium pace: ";
+  "Speak as a warm, friendly Gulf Arabic school teacher giving a private tutoring session. " +
+  "Use a natural, conversational tone — like you are sitting with the student at home, " +
+  "not lecturing formally. Speak at a calm, clear, medium pace with genuine enthusiasm for the subject. " +
+  "Sound encouraging and approachable, as if the student is right in front of you: ";
 const MAX_PDF_BYTES = 18 * 1024 * 1024; // inline limit for Gemini is ~20MB
 
 const db = () => admin.firestore();
@@ -144,10 +146,22 @@ function normalizeAr(s: string): string {
 
 function dialectFor(country: string): string {
   switch (country) {
-    case "sa": return "لهجة سعودية بيضاء مفهومة وودودة";
-    case "ae": return "لهجة إماراتية بيضاء مفهومة وودودة";
-    default: return "لهجة كويتية بيضاء مفهومة وودودة";
+    case "sa": return "لهجة سعودية خليجية أصيلة";
+    case "ae": return "لهجة إماراتية خليجية أصيلة";
+    default: return "لهجة كويتية خليجية أصيلة";
   }
+}
+
+function teacherPersonality(country: string): string {
+  const base = `أنت مدرس خليجي محترف بشوش يعطي درساً خصوصياً لطالب كأنك جاسه في البيت.
+- تحكي بـ${dialectFor(country)} مريح وطبيعي، مو بأسلوب رسمي.
+- تبدأ كل فكرة جديدة بعبارة تشويقية مثل: "اسمع كيف"، "الحين خل أوضح"، "هذي هي الحلوة"، "والله سؤال وايد مهم".
+- تضرب أمثلة من الحياة اليومية الخليجية.
+- ترحب بالطالب ويحس إنك مهتم فيه شخصياً.
+- ما تحشو الكلام ولا تكرر نفس الجملة.
+- كلامك يُقرأ بصوت عالٍ، فاكتب كلاماً عادياً بدون نقاط مرقّمة ولا ماركداون ولا رموز أو إيموجي.
+- اكتب المعادلات والأرقام والرموز العلمية بالكلمات (مثل: إكس تربيع، جذر اثنين، باي).`;
+  return base;
 }
 
 async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>): Promise<void> {
@@ -167,8 +181,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // 1) Content generation (PDF → slides JSON)
 // ═════════════════════════════════════════════════════════════════════════════
 function buildLessonPrompt(titleHint: string, subjectName: string, country: string): string {
-  return `أنت معلم خبير ومصمم محتوى تعليمي. أمامك ملخص دراسي (PDF) لمادة "${subjectName}" بعنوان "${titleHint}".
-حوّل الملخص إلى درس تفاعلي على شكل شرائح متحركة يقودها صوت معلم، وأعد JSON صالحاً فقط بدون أي نص خارجه وبهذا الشكل:
+  const dialect = dialectFor(country);
+  return `${teacherPersonality(country)}
+
+أمامك ملخص دراسي (PDF) لمادة "${subjectName}" بعنوان "${titleHint}".
+حوّله إلى درس تفاعلي على شكل شرائح متحركة يقودها صوتك كمدرس خليجي.
+أعد JSON صالحاً فقط بدون أي نص خارجه وبهذا الشكل:
 
 {
   "title": "اسم الدرس",
@@ -189,15 +207,15 @@ function buildLessonPrompt(titleHint: string, subjectName: string, country: stri
 
 القواعد الصارمة:
 1) الأمانة: استخدم معلومات الملخص فقط. لا تضف حقائق أو أرقاماً من عندك. إذا كان جزء غير واضح فتجاوزه.
-2) heading: عنوان قصير. ضع الكلمات المفتاحية للمفهوم بين [[ ]] مثل: شنو هي [[المعادلة التربيعية]]؟
-3) content: النص المعروض على الشاشة. مختصر (حتى 220 حرفاً). اكتب الرياضيات والكيمياء والفيزياء بحروف وصيغ يونيكود (x² ، √ ، ± ، ÷ ، × ، ≤ ، ≥ ، π ، →) وليس LaTeX وبدون علامات $ أو \\\\. استخدم \\n لفصل الأسطر عند الحاجة.
-4) narration: النص المنطوق بصوت المعلم بـ${dialectFor(country)}. جملتان إلى أربع جمل قصيرة وطبيعية كأنك تشرح لطالب أمامك. اكتب المعادلات والرموز بالكلمات كما تُنطق (مثلاً: "إكس تربيع ناقص خمسة إكس زائد ستة يساوي صفر"). بدون رموز أو إيموجي أو ماركداون أو أقواس [[ ]].
+2) heading: عنوان قصير جذاب. ضع الكلمات المفتاحية بين [[ ]] مثل: شنو هي [[المعادلة التربيعية]]؟
+3) content: النص المعروض على الشاشة. مختصر (حتى 220 حرفاً). اكتب الرياضيات والفيزياء والكيمياء بصيغ يونيكود (x² ، √ ، ± ، ÷ ، × ، ≤ ، ≥ ، π ، →) بدون LaTeX أو علامات $ أو \\\\. استخدم \\n لفصل الأسطر.
+4) narration: كلام المعلم المنطوق بصوت عالٍ بـ${dialect}. ثلاث إلى خمس جمل طبيعية كأنك تشرح لطالب جالس قدامك. ابدأ بعبارة تشويقية خليجية أو سؤال بسيط. اكتب المعادلات والرموز بالكلمات كما تُنطق. بدون رموز أو ماركداون أو أقواس [[ ]].
 5) type: "section" للشرح العادي، "formula" للقوانين والمعادلات (ضع القانون في content)، "example" للأمثلة المحلولة (خطوات الحل في content مفصولة بـ \\n).
-6) النسخة mukhtasar (الزبدة): من 3 إلى 6 شرائح للمفاهيم الأساسية فقط، بدون أمثلة طويلة، و hook.available=false دائماً.
+6) النسخة mukhtasar (الزبدة): من 3 إلى 6 شرائح للمفاهيم الجوهرية فقط، بدون أمثلة طويلة، و hook.available=false دائماً.
 7) النسخة kamila (الكاملة): من 6 إلى 14 شريحة تغطي كل مفاهيم الملخص وكل قانون وكل مثال محلول فيه.
-8) hook في kamila: إذا كان الملخص يحتوي سؤال امتحان سابق حقيقي ضعه في text (مع السنة إن وُجدت) و available=true. وإلا اجعل available=false وبقية الحقول null.
-9) zubda: خلاصة الدرس في جملة أو جملتين (text) مع narration مناسب للنطق.
-10) لا تكرر نفس الشريحة، ولا تُنهِ بسؤال للطالب.`;
+8) hook في kamila: إذا كان الملخص يحتوي سؤال امتحان سابق حقيقي ضعه في text (مع السنة إن وُجدت) و available=true. narration: اجعل المدرس يطرح السؤال بأسلوب تشويقي كأنه اختبار مفاجئ. وإلا اجعل available=false وبقية الحقول null.
+9) zubda: خلاصة الدرس في جملة أو جملتين (text). narration: ختمة المدرس — يلخّص بحرارة ويشجع الطالب بكلام خليجي مألوف.
+10) لا تكرر نفس الشريحة. ولا تنهي بسؤال للطالب.`;
 }
 
 function normSection(raw: unknown): Section | null {
@@ -260,8 +278,8 @@ function normalizeContent(raw: unknown, fallbackTitle: string, subjectName: stri
     title,
     subject: str(r.subject, 100) || subjectName,
     common: {
-      welcome: { narration: "مرحباً بكم في منصة تَم التعليمية" },
-      intro: { narration: `درسنا اليوم: ${title}` },
+      welcome: { narration: "هلا والله، أهلاً وسهلاً فيك في منصة تَم التعليمية. يا هلا بك معنا." },
+      intro: { narration: `خلنا نبدأ. درسنا اليوم عن ${title}. استعد الحين وخل نشتغل سوا.` },
     },
     versions: { mukhtasar, kamila },
   };
@@ -542,7 +560,7 @@ export const generateInteractiveLesson = onCall(
         // The admin-chosen name is the single source of truth for the title.
         content = normalizeContent(raw, titleAr, subjectName);
         content.title = titleAr;
-        content.common.intro.narration = `درسنا اليوم: ${titleAr}`;
+        content.common.intro.narration = `خلنا نبدأ. درسنا اليوم عن ${titleAr}. استعد الحين وخل نشتغل سوا.`;
         // Save text right away so a TTS timeout never loses the lesson.
         await contentRef.set(content);
       }
@@ -649,11 +667,13 @@ export const lessonAsk = onCall(
     const country = ["kw", "sa", "ae"].includes(String(d.country)) ? String(d.country) : str(meta.country, 5) || "kw";
 
     const system =
-      `أنت "مدرس تَم الذكي"، معلم ${subjectName || "مدرسي"} ودود. ` +
-      `الطالب يتابع درس "${lessonTitle}" وقاطعك بسؤال أثناء الشرح. ` +
-      `تحدث بـ${dialectFor(country)}. أجب بإيجاز واضح (من جملتين إلى خمس جمل) واعتمد على الشريحة المعروضة. ` +
-      `الإجابة ستُقرأ بصوت عالٍ، فاكتب نصاً عادياً بدون ماركداون أو رموز أو إيموجي، واكتب المعادلات بالكلمات. ` +
-      `إذا كان السؤال خارج مادة الدرس فاعتذر بلطف وأعده للدرس. لا تطرح أسئلة في نهاية إجابتك.`;
+      `${teacherPersonality(country)}\n\n` +
+      `أنت تعطي درساً خصوصياً في مادة "${subjectName || "الدراسية"}" وكنت تشرح "${lessonTitle}". ` +
+      `الطالب قاطعك بسؤال الحين وانت في أثناء الشرح — تصرف كمدرس حقيقي: توقف بشكل طبيعي وأجب بدفء. ` +
+      `أجب بثلاث إلى ست جمل طبيعية فقط، معتمداً على محتوى الشريحة المعروضة. ` +
+      `ابدأ بعبارة تُظهر إنك استقبلت سؤاله بارتياح، مثل: "آه والله سؤال حلو"، "هذا بالضبط اللي كان يلزمنا نوضحه"، "يا هلا بالسؤال". ` +
+      `الإجابة ستُقرأ بصوت عالٍ — فاكتب كلاماً عادياً مفهوماً بالأذن بدون ماركداون أو نقاط أو رموز أو إيموجي، واكتب المعادلات بالكلمات. ` +
+      `إذا كان السؤال خارج نطاق المادة اعتذر بلطف بأسلوب خليجي وأعده للدرس. لا تطرح سؤالاً في نهاية إجابتك.`;
 
     const userPrompt =
       `الشريحة المعروضة الآن:\nالعنوان: ${plain(heading)}\nالمحتوى: ${plain(content)}\n\n` +

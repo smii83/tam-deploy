@@ -1,1 +1,84 @@
-{"functions":{"source":"functions","codebase":"default","ignore":["node_modules",".git","firebase-debug.log","firebase-debug.*.log","*.local"]},"firestore":{"rules":"firestore.rules"},"hosting":{"public":"admin_dashboard","cleanUrls":false,"trailingSlash":false,"ignore":["firebase.json","**/.*","**/node_modules/**"],"headers":[{"source":"**","headers":[{"key":"X-Frame-Options","value":"DENY"},{"key":"X-Content-Type-Options","value":"nosniff"},{"key":"Referrer-Policy","value":"strict-origin-when-cross-origin"}]}],"rewrites":[{"source":"/privacy","destination":"/privacy.html"},{"source":"/terms","destination":"/terms.html"},{"source":"**","destination":"/index.html"}]},"flutter":{"platforms":{"android":{"default":{"projectId":"tam-app-fd30f","appId":"1:82581349835:android:e624c1c1f3b5424042824e","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"tam-app-fd30f","configurations":{"android":"1:82581349835:android:e624c1c1f3b5424042824e","ios":"1:82581349835:ios:52bd7d922fa3bc9e42824e","web":"1:82581349835:web:018e0cd45d48a9c942824e"}}}}}}
+{
+  "functions": {
+    "source": "functions",
+    "codebase": "default",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "*.local"
+    ]
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "hosting": {
+    "public": "admin_dashboard",
+    "cleanUrls": false,
+    "trailingSlash": false,
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "X-Frame-Options",
+            "value": "DENY"
+          },
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "Referrer-Policy",
+            "value": "strict-origin-when-cross-origin"
+          }
+        ]
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "/privacy",
+        "destination": "/privacy.html"
+      },
+      {
+        "source": "/terms",
+        "destination": "/terms.html"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "tam-app-fd30f",
+          "appId": "1:82581349835:android:e624c1c1f3b5424042824e",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "tam-app-fd30f",
+          "configurations": {
+            "android": "1:82581349835:android:e624c1c1f3b5424042824e",
+            "ios": "1:82581349835:ios:52bd7d922fa3bc9e42824e",
+            "web": "1:82581349835:web:018e0cd45d48a9c942824e"
+          }
+        }
+      }
+    }
+  }
+}

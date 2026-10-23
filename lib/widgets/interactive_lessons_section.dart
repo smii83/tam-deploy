@@ -17,6 +17,8 @@ class InteractiveLessonsSection extends StatelessWidget {
   final bool isDark;
   final bool isAr;
   final void Function(String pdfId, String title) onOpen;
+  // استخدم ValueNotifier لإدارة حالة الانتهاء دون setState المتكرر
+  final ValueNotifier<Set<String>> completedNotifier;
 
   const InteractiveLessonsSection({
     super.key,
@@ -27,6 +29,7 @@ class InteractiveLessonsSection extends StatelessWidget {
     required this.isDark,
     required this.isAr,
     required this.onOpen,
+    required this.completedNotifier,
   });
 
   String _title(Map<String, dynamic> d) {
@@ -91,7 +94,16 @@ class InteractiveLessonsSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          for (final d in summaries) _card(d, textMain),
+          ListView.builder(
+            padding: EdgeInsets.zero,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: summaries.length,
+            itemBuilder: (context, index) => ValueListenableBuilder<Set<String>>(
+              valueListenable: completedNotifier,
+              builder: (_, __, ___) => _card(summaries[index], textMain),
+            ),
+          ),
         ],
       ),
     );
@@ -102,7 +114,7 @@ class InteractiveLessonsSection extends StatelessWidget {
     final title = _title(d);
     final meta = metas[pdfId];
     final ready = meta?.isReady == true;
-    final done = completed.contains('il_$pdfId');
+    final done = completedNotifier.value.contains('il_$pdfId');
     final minutes = ready && meta!.durationKamila > 0
         ? (meta.durationKamila / 60).ceil()
         : 0;
