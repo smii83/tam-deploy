@@ -92,7 +92,7 @@ class _SubjectScreenState extends State<SubjectScreen> {
               bottom: false,
               child: _SubjectHeader(
                 name: name,
-                emoji: widget.subject['em'] ?? '✨',
+                emoji: widget.subject['em'] ?? '',
                 grade: widget.grade,
                 accentColor: baseColor,
                 isDark: isDark,
@@ -197,8 +197,8 @@ class _SubjectScreenState extends State<SubjectScreen> {
                 _WideCard(
                   title: p.isAr ? 'حل الواجبات' : 'Homework Help',
                   subtitle: p.isAr
-                      ? 'صوّر الواجب ← نحله لك خطوة بخطوة ✨'
-                      : 'Snap homework → Step-by-step solution ✨',
+                      ? 'صوّر الواجب ونحله لك خطوة بخطوة'
+                      : 'Snap homework and we solve it step-by-step',
                   accentColor: baseColor,
                   isDark: isDark,
                   isAr: p.isAr,
@@ -533,55 +533,28 @@ class _WideCard extends StatelessWidget {
             ),
           ],
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment:
+              isAr ? CrossAxisAlignment.start : CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Text Column (Title + Subtitle)
-            Expanded(
-              child: Column(
-                crossAxisAlignment:
-                    isAr ? CrossAxisAlignment.start : CrossAxisAlignment.end,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: isDark ? Colors.white : const Color(0xFF1A1A2E),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      fontFamily: 'Cairo',
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: accentColor.withValues(alpha: 0.9),
-                      fontSize: 11,
-                      fontFamily: 'Cairo',
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+            Text(
+              title,
+              style: TextStyle(
+                color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                fontFamily: 'Cairo',
               ),
             ),
-            const SizedBox(width: 12),
-            // Sleek circular arrow badge
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: accentColor.withValues(alpha: isDark ? 0.16 : 0.08),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: accentColor.withValues(alpha: isDark ? 0.30 : 0.16),
-                  width: 1,
-                ),
-              ),
-              child: Icon(
-                isAr ? Icons.chevron_left_rounded : Icons.chevron_right_rounded,
-                color: accentColor,
-                size: 20,
-                textDirection: TextDirection.ltr,
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: accentColor.withValues(alpha: 0.9),
+                fontSize: 11.5,
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],

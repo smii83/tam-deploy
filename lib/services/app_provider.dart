@@ -315,7 +315,7 @@ class AppProvider extends ChangeNotifier {
   String get greetingEve   => isAr ? 'مساء النور 🌙' : 'Good evening 🌙';
   String get subscribed    => isAr ? 'مشترك ✓' : 'Subscribed ✓';
   String get solveByCam    => isAr ? 'حل بالكاميرا' : 'Solve by Camera';
-  String get solveDesc     => isAr ? 'صوّر السؤال → نحله فوراً ✨' : 'Photo question → Instant solution ✨';
+  String get solveDesc     => isAr ? 'صوّر السؤال ونحله فوراً' : 'Photo question → Instant solution';
   String get scientific    => isAr ? 'علمي' : 'Scientific';
   String get literary      => isAr ? 'أدبي' : 'Literary';
   String get chooseSection => isAr ? 'اختر القسم' : 'Choose Section';
