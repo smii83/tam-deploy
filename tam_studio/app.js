@@ -13,6 +13,7 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+const auth = firebase.auth();
 const storage = firebase.storage();
 
 let selectedPdfFile = null;
@@ -20,11 +21,139 @@ let selectedPdfBase64 = null;
 let currentSummaryData = null;
 let generatedPdfBlob = null;
 
+// Admin whitelist
+const ADMIN_EMAILS = [
+  'admin@tam.com',
+  'tamteach01@gmail.com',
+  'tam.app83@gmail.com',
+  'tm.app83@gmail.com',
+  'admin@eduspark.com'
+];
+
+// Master studio credentials
+const MASTER_USER = 'admin@tam.com';
+const MASTER_PASS = 'Tam@2026';
+
 // Initialize on Load
 document.addEventListener('DOMContentLoaded', async () => {
   setupDropzone();
-  await loadGrades();
+  setupAuthListeners();
+  checkAuthSession();
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 0. AUTHENTICATION & LOGIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+function setupAuthListeners() {
+  const pwdInput = document.getElementById('authPassword');
+  const emailInput = document.getElementById('authEmail');
+  if (pwdInput) {
+    pwdInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleStudioLogin();
+    });
+  }
+  if (emailInput) {
+    emailInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleStudioLogin();
+    });
+  }
+}
+
+function checkAuthSession() {
+  const localSession = sessionStorage.getItem('tam_studio_admin');
+  if (localSession) {
+    grantAccess(localSession);
+    return;
+  }
+
+  auth.onAuthStateChanged((user) => {
+    if (user && isAuthorizedAdmin(user.email)) {
+      grantAccess(user.email);
+    } else {
+      showLoginScreen();
+    }
+  });
+}
+
+function isAuthorizedAdmin(email) {
+  if (!email) return false;
+  const e = email.toLowerCase().trim();
+  return ADMIN_EMAILS.some(a => a.toLowerCase().trim() === e);
+}
+
+function showLoginScreen() {
+  document.getElementById('loginOverlay').classList.remove('hidden');
+  document.getElementById('userSessionBadge').classList.add('hidden');
+}
+
+function grantAccess(username) {
+  sessionStorage.setItem('tam_studio_admin', username);
+  document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('sessionUserName').textContent = username.split('@')[0];
+  document.getElementById('userSessionBadge').classList.remove('hidden');
+  loadGrades();
+}
+
+async function handleStudioLogin() {
+  const email = document.getElementById('authEmail').value.trim();
+  const pass = document.getElementById('authPassword').value;
+  const errEl = document.getElementById('loginErrorMsg');
+  const btn = document.getElementById('btnLogin');
+  const btnText = document.getElementById('btnLoginText');
+
+  errEl.classList.add('hidden');
+
+  if (!email || !pass) {
+    errEl.textContent = 'يرجى إدخال اسم المستخدم وكلمة المرور';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  btn.disabled = true;
+  btnText.textContent = 'جاري التحقق...';
+
+  // 1. Check Master Studio Credentials
+  if (
+    (email.toLowerCase() === MASTER_USER.toLowerCase() || email.toLowerCase() === 'tam_admin') &&
+    pass === MASTER_PASS
+  ) {
+    btn.disabled = false;
+    btnText.textContent = 'تسجيل الدخول';
+    grantAccess(email);
+    toast('✅ تم تسجيل الدخول بنجاح كـ مشرف', 'success');
+    return;
+  }
+
+  // 2. Check Firebase Authentication
+  try {
+    const cred = await auth.signInWithEmailAndPassword(email, pass);
+    if (!isAuthorizedAdmin(email)) {
+      await auth.signOut();
+      throw new Error('هذا الحساب ليس مشرفاً معتمداً في منصة تَم');
+    }
+    grantAccess(email);
+    toast('✅ تم تسجيل الدخول بنجاح', 'success');
+  } catch (err) {
+    let msg = 'اسم المستخدم أو كلمة المرور غير صحيحة';
+    if (err.code === 'auth/user-not-found') msg = 'البريد الإلكتروني غير مسجل';
+    if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') msg = 'كلمة المرور غير صحيحة';
+    if (err.message && err.message.includes('مشرفاً')) msg = err.message;
+
+    errEl.textContent = msg;
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btnText.textContent = 'تسجيل الدخول';
+  }
+}
+
+function handleStudioLogout() {
+  sessionStorage.removeItem('tam_studio_admin');
+  auth.signOut().catch(() => {});
+  showLoginScreen();
+  toast('تم تسجيل الخروج بنجاح', 'info');
+}
 
 // Toast Notifications
 function toast(msg, type = 'info') {

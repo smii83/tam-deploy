@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ستوديو تَم — صانع ومحوّل الملخصات الذكي</title>
+  <link rel="icon" type="image/svg+xml" href="../admin_dashboard/favicon.svg" />
+  <!-- Google Fonts: Cairo -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
+  
+  <!-- PDF Generator & Audio Encoder -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js"></script>
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Ambient background glow -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+
+  <!-- Header -->
+  <header class="studio-header">
+    <div class="header-content">
+      <div class="brand">
+        <div class="brand-badge">TAM STUDIO</div>
+        <div class="brand-text">
+          <h1>ستوديو تَم لتحويل وصناعة الملخصات الذكية</h1>
+          <p>تحويل مذكرات ومستندات الوزارة إلى ملخصات فخمة مخصصة لمنصة تَم ومهيأة للسبورة التفاعلية</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="user-session hidden" id="userSessionBadge">
+          <span class="user-name" id="sessionUserName">المشرف</span>
+          <button class="btn-logout-small" onclick="handleStudioLogout()" title="تسجيل الخروج">🚪 خروج</button>
+        </div>
+        <a href="../index.html" class="btn-ghost">
+          <span>لوحة التحكم</span>
+          <span class="icon">↗</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- LOGIN OVERLAY -->
+  <div class="login-overlay" id="loginOverlay">
+    <div class="login-card">
+      <div class="brand-badge" style="margin-bottom: 12px;">TAM STUDIO ACCESS</div>
+      <h2>تسجيل الدخول إلى ستوديو تَم</h2>
+      <p class="login-subtitle">أدخل بيانات المشرف للمتابعة وتحويل المذكرات إلى ملخصات تَم</p>
+      
+      <div class="form-group" style="text-align: right;">
+        <label for="authEmail">اسم المستخدم أو البريد الإلكتروني</label>
+        <input type="text" id="authEmail" placeholder="admin@tam.com" autocomplete="username" />
+      </div>
+
+      <div class="form-group" style="text-align: right;">
+        <label for="authPassword">كلمة المرور</label>
+        <input type="password" id="authPassword" placeholder="••••••••" autocomplete="current-password" />
+      </div>
+
+      <div class="login-error hidden" id="loginErrorMsg"></div>
+
+      <button class="btn-primary" id="btnLogin" onclick="handleStudioLogin()" style="width: 100%; justify-content: center; margin-top: 10px;">
+        <span id="btnLoginText">تسجيل الدخول</span>
+        <span class="arrow">←</span>
+      </button>
+
+      <div class="login-credentials-box">
+        <span class="hint-title">بيانات الدخول الافتراضية للمشرف:</span>
+        <code>admin@tam.com</code> / <code>Tam@2026</code>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Container -->
+  <main class="studio-main">
+    <!-- Stepper indicator -->
+    <div class="studio-stepper">
+      <div class="step-node active" id="stepNode1">
+        <div class="step-num">1</div>
+        <div class="step-info">
+          <span class="step-title">رفع الملف والبيانات</span>
+          <span class="step-sub">المادة، الصف، واسم الدرس</span>
+        </div>
+      </div>
+      <div class="step-connector" id="conn1"></div>
+      <div class="step-node" id="stepNode2">
+        <div class="step-num">2</div>
+        <div class="step-info">
+          <span class="step-title">التنقية والمعالجة الذكية</span>
+          <span class="step-sub">حذف أسماء الوزارة وتوليد الشرح</span>
+        </div>
+      </div>
+      <div class="step-connector" id="conn2"></div>
+      <div class="step-node" id="stepNode3">
+        <div class="step-num">3</div>
+        <div class="step-info">
+          <span class="step-title">المعاينة والنشر المباشر</span>
+          <span class="step-sub">تحميل PDF ونشر للسبورة التفاعلية</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- WORKFLOW PANELS -->
+    <div class="workflow-container">
+      
+      <!-- STEP 1: Upload & Meta -->
+      <section class="studio-card" id="stepCard1">
+        <div class="card-header">
+          <div class="card-tag">الخطوة الأولى</div>
+          <h2>تحديد مكان الملخص ورفع الملف</h2>
+          <p class="card-desc">اختر الصف والمادة واكتب عنوان الدرس، ثم ارفع ملف الـ PDF المأخوذ من موقع الوزارة أو المعلمين.</p>
+        </div>
+
+        <div class="card-body">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="gradeSelect">الصف الدراسي <span class="req">*</span></label>
+              <select id="gradeSelect" onchange="onGradeSelected()">
+                <option value="">— جاري تحميل الصفوف... —</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="subjectSelect">المادة الدراسية <span class="req">*</span></label>
+              <select id="subjectSelect">
+                <option value="">— اختر الصف أولاً —</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="label-with-hint">
+              <label for="lessonTitle">عنوان الدرس (سيظهر على الغلاف وفي السبورة) <span class="req">*</span></label>
+              <span class="hint">يمكنك تركه فارغاً ليستخرجه الذكاء الاصطناعي تلقائياً من الملف</span>
+            </div>
+            <input type="text" id="lessonTitle" placeholder="مثال: الحركة التوافقية البسيطة / تفاعلات الأكسدة والاختزال" />
+          </div>
+
+          <!-- Upload Dropzone -->
+          <div class="dropzone-container" id="dropzone" onclick="document.getElementById('pdfFileInput').click()">
+            <input type="file" id="pdfFileInput" accept="application/pdf" style="display:none;" onchange="handleFileSelected(this.files[0])" />
+            <div class="dropzone-icon">📄</div>
+            <div class="dropzone-text">
+              <h3>اسحب ملف PDF هنا، أو اضغط للاختيار من جهازك</h3>
+              <p>يدعم مذكرات الوزارة، ملازم المعلمين، والملخصات الخارجية بصيغة PDF</p>
+            </div>
+            <div class="file-badge hidden" id="fileBadge">
+              <span class="file-name" id="selectedFileName">file.pdf</span>
+              <span class="file-size" id="selectedFileSize">(0 KB)</span>
+              <button type="button" class="btn-remove-file" onclick="event.stopPropagation(); removeSelectedFile();">✕</button>
+            </div>
+          </div>
+
+          <!-- Feature Guarantees -->
+          <div class="guarantees-grid">
+            <div class="guarantee-item">
+              <span class="guarantee-icon">🛡️</span>
+              <div>
+                <strong>تصفية شاملة 100%</strong>
+                <p>إزالة أي ذكر للوزارة أو المدارس أو المعلمين أو أرقام التواصل وقنوات التيليجرام.</p>
+              </div>
+            </div>
+            <div class="guarantee-item">
+              <span class="guarantee-icon">🎨</span>
+              <div>
+                <strong>غلاف فخم باسم تَم</strong>
+                <p>الصفحة الأولى تُولد حصرياً باسم منصة تَم والمادة واسم الدرس دون أي معلومات خارجية.</p>
+              </div>
+            </div>
+            <div class="guarantee-item">
+              <span class="guarantee-icon">⚡</span>
+              <div>
+                <strong>جاهز للسبورة التفاعلية</strong>
+                <p>صياغة المفاهيم والقوانين والأمثلة في شرائح منظمة تجعل السبورة التفاعلية بأعلى جودة.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Button -->
+          <div class="form-actions">
+            <button class="btn-primary" id="btnStartProcess" onclick="startAIProcessing()" disabled>
+              <span>بدء التحويل والصياغة الذكية لمنصة تَم</span>
+              <span class="arrow">←</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 2: Processing Progress -->
+      <section class="studio-card hidden" id="stepCard2">
+        <div class="processing-content">
+          <div class="pulse-loader">
+            <div class="pulse-ring"></div>
+            <div class="pulse-core">TAM</div>
+          </div>
+          <h2 id="processStatusTitle">جاري قراءة الملف وتطهير المحتوى...</h2>
+          <p id="processStatusDesc" class="process-desc">يقوم الذكاء الاصطناعي الآن بقراءة صفحات المذكرة وحذف كل الإشارات الخارجية وإعادة صياغة الدرس لسبورة تَم التفاعلية...</p>
+          
+          <div class="progress-bar-container">
+            <div class="progress-bar-fill" id="progressBarFill" style="width: 15%;"></div>
+          </div>
+
+          <div class="process-checklist">
+            <div class="check-item active" id="chk1">
+              <span class="icon">⏳</span>
+              <span>استخراج النصوص والرسومات الرياضية والعلمية من الـ PDF</span>
+            </div>
+            <div class="check-item" id="chk2">
+              <span class="icon">⏳</span>
+              <span>تصفية وتطهير المحتوى من الوزارة والمعلمين والروابط الخارجية</span>
+            </div>
+            <div class="check-item" id="chk3">
+              <span class="icon">⏳</span>
+              <span>إعادة هيكلة الملخص (مفاهيم، قوانين، أمثلة محلولة، نصائح ذهبية)</span>
+            </div>
+            <div class="check-item" id="chk4">
+              <span class="icon">⏳</span>
+              <span>تهيئة شرائح السبورة التفاعلية وبناء الغلاف الرسمي لمنصة تَم</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 3: Preview & Direct Publish -->
+      <section class="studio-card hidden" id="stepCard3">
+        <div class="card-header result-header">
+          <div>
+            <div class="card-tag success">اكتمل التوليد بنجاح</div>
+            <h2 id="resultLessonTitle">عنوان الدرس</h2>
+            <p class="card-desc" id="resultMeta">الصف • المادة</p>
+          </div>
+          <div class="result-actions">
+            <button class="btn-secondary" onclick="downloadTamPdf()">
+              <span>تحميل ملف PDF المنقح</span>
+              <span class="icon">📥</span>
+            </button>
+            <button class="btn-success" id="btnPublishDirect" onclick="publishToTamAndGenerateLesson()">
+              <span>نشر فوري للمنصة وتوليد السبورة 🚀</span>
+            </button>
+            <button class="btn-outline" onclick="resetStudio()">
+              <span>تحويل ملف آخر</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Tabs for Output: PDF Document vs Interactive Slides -->
+        <div class="result-tabs">
+          <button class="tab-btn active" onclick="switchResultTab('pdfView')">📄 معاينة مستند PDF (غلاف تَم + الملخص المنقح)</button>
+          <button class="tab-btn" onclick="switchResultTab('whiteboardView')">🎬 معاينة شرائح السبورة التفاعلية المجهزة</button>
+        </div>
+
+        <!-- Tab 1: PDF Document Container -->
+        <div class="tab-content active" id="pdfViewContent">
+          <div class="pdf-render-stage" id="pdfRenderStage">
+            <!-- Dynamically populated TAM PDF structure -->
+          </div>
+        </div>
+
+        <!-- Tab 2: Whiteboard Slides Preview -->
+        <div class="tab-content" id="whiteboardViewContent">
+          <div class="slides-preview-grid" id="slidesGrid">
+            <!-- Dynamically populated slides -->
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Notification Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -862,6 +862,106 @@ select option {
   background: #881337;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   LOGIN OVERLAY STYLES
+   ───────────────────────────────────────────────────────────────────────────── */
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 18, 0.88);
+  backdrop-filter: blur(28px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.3s ease;
+}
+.login-card {
+  width: 100%;
+  max-width: 440px;
+  background: rgba(22, 22, 38, 0.95);
+  border: 1px solid rgba(124, 58, 237, 0.4);
+  border-radius: var(--radius-lg);
+  padding: 38px 32px;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(124, 58, 237, 0.2);
+  text-align: center;
+}
+.login-card h2 {
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 6px;
+}
+.login-subtitle {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+.login-error {
+  background: rgba(244, 63, 94, 0.15);
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  color: #f87171;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  text-align: right;
+}
+.login-credentials-box {
+  margin-top: 24px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.login-credentials-box code {
+  color: #c084fc;
+  font-weight: 700;
+  background: rgba(124, 58, 237, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.hint-title {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.user-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.user-name {
+  color: #c084fc;
+  font-weight: 700;
+}
+.btn-logout-small {
+  background: rgba(244, 63, 94, 0.2);
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  color: #fca5a5;
+  border-radius: 12px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-logout-small:hover {
+  background: rgba(244, 63, 94, 0.35);
+  color: #fff;
+}
+
 /* Utilities */
 .hidden {
   display: none !important;
