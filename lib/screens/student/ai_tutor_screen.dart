@@ -217,7 +217,7 @@ class _AITutorScreenState extends State<AITutorScreen> {
                     ),
                     child: Center(
                       child: Text(
-                        widget.subject['em'] ?? '👨‍🏫',
+                        widget.subject['em'] ?? '✨',
                         style: const TextStyle(fontSize: 20),
                       ),
                     ),
@@ -541,7 +541,7 @@ class _AITutorScreenState extends State<AITutorScreen> {
               ),
               child: Center(
                 child: Text(
-                  widget.subject['em'] ?? '👨‍🏫',
+                  widget.subject['em'] ?? '✨',
                   style: const TextStyle(fontSize: 44),
                 ),
               ),
@@ -617,7 +617,7 @@ class _AITutorScreenState extends State<AITutorScreen> {
               ),
               child: Center(
                 child: Text(
-                  widget.subject['em'] ?? '👨‍🏫',
+                  widget.subject['em'] ?? '✨',
                   style: const TextStyle(fontSize: 14),
                 ),
               ),
@@ -723,7 +723,7 @@ class _AITutorScreenState extends State<AITutorScreen> {
             ),
             child: Center(
               child: Text(
-                widget.subject['em'] ?? '👨‍🏫',
+                widget.subject['em'] ?? '✨',
                 style: const TextStyle(fontSize: 14),
               ),
             ),

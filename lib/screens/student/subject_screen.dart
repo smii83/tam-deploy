@@ -92,7 +92,7 @@ class _SubjectScreenState extends State<SubjectScreen> {
               bottom: false,
               child: _SubjectHeader(
                 name: name,
-                emoji: widget.subject['em'] ?? '📚',
+                emoji: widget.subject['em'] ?? '✨',
                 grade: widget.grade,
                 accentColor: baseColor,
                 isDark: isDark,
@@ -180,7 +180,6 @@ class _SubjectScreenState extends State<SubjectScreen> {
                 ),
                 const SizedBox(height: 12),
                 _WideCard(
-                  emoji: '👨‍🏫',
                   title: p.isAr ? 'اسأل مدرس المادة' : 'Ask Subject Teacher',
                   subtitle: p.isAr
                       ? 'متوفر معك على مدار 24 ساعة'
@@ -196,7 +195,6 @@ class _SubjectScreenState extends State<SubjectScreen> {
                 ),
                 const SizedBox(height: 12),
                 _WideCard(
-                  emoji: '📚',
                   title: p.isAr ? 'حل الواجبات' : 'Homework Help',
                   subtitle: p.isAr
                       ? 'صوّر الواجب ← نحله لك خطوة بخطوة ✨'
@@ -478,10 +476,9 @@ class _SectionCard extends StatelessWidget {
 }
 
 // ──────────────────────────────────────────────────────────
-// Wide Horizontal Card (bottom 2 full-width cards)
+// Wide Horizontal Card (bottom 2 full-width cards) - Text-only Elegant Design
 // ──────────────────────────────────────────────────────────
 class _WideCard extends StatelessWidget {
-  final String emoji;
   final String title;
   final String subtitle;
   final Color accentColor;
@@ -491,7 +488,6 @@ class _WideCard extends StatelessWidget {
   final VoidCallback onTap;
 
   const _WideCard({
-    required this.emoji,
     required this.title,
     required this.subtitle,
     required this.accentColor,
@@ -506,51 +502,40 @@ class _WideCard extends StatelessWidget {
     // Wide cards use a subtle gradient of the subject color
     final gradientStart = secondary
         ? (isDark
-            ? accentColor.withValues(alpha: 0.25)
-            : accentColor.withValues(alpha: 0.12))
+            ? accentColor.withValues(alpha: 0.22)
+            : accentColor.withValues(alpha: 0.10))
         : (isDark
-            ? accentColor.withValues(alpha: 0.30)
-            : accentColor.withValues(alpha: 0.15));
+            ? accentColor.withValues(alpha: 0.26)
+            : accentColor.withValues(alpha: 0.12));
 
     final gradientEnd = isDark ? const Color(0xFF1E1E2C) : Colors.white;
 
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 86,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.centerRight,
             end: Alignment.centerLeft,
             colors: [gradientStart, gradientEnd],
           ),
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: accentColor.withValues(alpha: isDark ? 0.28 : 0.18),
             width: 1.5,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: accentColor.withValues(alpha: isDark ? 0.12 : 0.05),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            // Emoji (Right in RTL, Left in LTR)
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: accentColor.withValues(alpha: isDark ? 0.22 : 0.13),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: accentColor.withValues(alpha: isDark ? 0.35 : 0.22),
-                  width: 1,
-                ),
-              ),
-              child: Center(
-                child: Text(emoji, style: const TextStyle(fontSize: 26)),
-              ),
-            ),
-            const SizedBox(width: 12),
-            // Text
+            // Text Column (Title + Subtitle)
             Expanded(
               child: Column(
                 crossAxisAlignment:
@@ -561,31 +546,43 @@ class _WideCard extends StatelessWidget {
                     title,
                     style: TextStyle(
                       color: isDark ? Colors.white : const Color(0xFF1A1A2E),
-                      fontSize: 15,
+                      fontSize: 16,
                       fontWeight: FontWeight.w800,
                       fontFamily: 'Cairo',
                     ),
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 4),
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: accentColor.withValues(alpha: 0.85),
-                      fontSize: 10,
+                      color: accentColor.withValues(alpha: 0.9),
+                      fontSize: 11,
                       fontFamily: 'Cairo',
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 10),
-            // Arrow icon (Left in RTL, Right in LTR)
-            Icon(
-              isAr ? Icons.chevron_left_rounded : Icons.chevron_right_rounded,
-              color: accentColor.withValues(alpha: 0.5),
-              size: 14,
-              textDirection: TextDirection.ltr, // Prevent automatic mirroring
+            const SizedBox(width: 12),
+            // Sleek circular arrow badge
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: isDark ? 0.16 : 0.08),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: accentColor.withValues(alpha: isDark ? 0.30 : 0.16),
+                  width: 1,
+                ),
+              ),
+              child: Icon(
+                isAr ? Icons.chevron_left_rounded : Icons.chevron_right_rounded,
+                color: accentColor,
+                size: 20,
+                textDirection: TextDirection.ltr,
+              ),
             ),
           ],
         ),
