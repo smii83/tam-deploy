@@ -390,11 +390,100 @@ async function ttsPcm(apiKey: string, cfg: TtsConfig, text: string): Promise<Buf
   throw new Error(`TTS_FAILED: ${lastErr}`);
 }
 
+/**
+ * Gemini TTS clips have a "pop" at the start and a loud, noisy burst after the last word.
+ * Every slide is its own clip, so that is audible as static between segments.
+ * Steps: high-pass (DC/rumble) → drop edge artifacts → trim → fade in/out → short silent tail.
+ * Mirrors scratch/audio_tools/audio_clean.js.
+ */
+function cleanPcm(pcm: Buffer, rate: number): Int16Array {
+  const n0 = Math.floor(pcm.length / 2);
+  const x = new Float32Array(n0);
+  const rc = 1 / (2 * Math.PI * 70);
+  const a = rc / (rc + 1 / rate);
+  let px = 0;
+  let py = 0;
+  for (let i = 0; i < n0; i++) {
+    const v = pcm.readInt16LE(i * 2) / 32768;
+    const y = a * (py + v - px);
+    px = v;
+    py = y;
+    x[i] = y;
+  }
+
+  const fl = Math.max(1, Math.round(rate * 0.02));
+  const nf = Math.floor(n0 / fl);
+  const rms = new Float32Array(nf);
+  for (let f = 0; f < nf; f++) {
+    let e = 0;
+    for (let i = f * fl; i < (f + 1) * fl; i++) e += x[i] * x[i];
+    rms[f] = Math.sqrt(e / fl);
+  }
+  const sorted = Array.from(rms).sort((p, q) => p - q);
+  const ref = sorted[Math.floor(sorted.length * 0.9)] || 0;
+  const thresh = Math.max(0.004, ref * 0.07);
+
+  const MERGE = 5;
+  const chunks: Array<[number, number]> = [];
+  for (let f = 0; f < nf; f++) {
+    if (rms[f] <= thresh) continue;
+    const last = chunks[chunks.length - 1];
+    if (last && f - last[1] <= MERGE) last[1] = f;
+    else chunks.push([f, f]);
+  }
+  const stats = ([s, e]: [number, number]) => {
+    const a0 = s * fl;
+    const a1 = (e + 1) * fl;
+    let en = 0;
+    let pk = 0;
+    let z = 0;
+    for (let i = a0; i < a1; i++) {
+      en += x[i] * x[i];
+      const v = Math.abs(x[i]);
+      if (v > pk) pk = v;
+      if (i > a0 && (x[i] >= 0) !== (x[i - 1] >= 0)) z++;
+    }
+    const len = a1 - a0;
+    return { sec: len / rate, rms: Math.sqrt(en / len), peak: pk, zcr: z / len };
+  };
+  while (chunks.length > 1) {
+    const st = stats(chunks[chunks.length - 1]);
+    const gapBefore = (chunks[chunks.length - 1][0] - chunks[chunks.length - 2][1] - 1) * 0.02;
+    const noisy = st.zcr >= 0.22 || st.peak >= 0.95 || st.rms >= ref * 1.6;
+    if (gapBefore >= 0.1 && st.sec <= 0.8 && noisy) chunks.pop();
+    else break;
+  }
+  while (chunks.length > 1) {
+    const st = stats(chunks[0]);
+    const gapAfter = (chunks[1][0] - chunks[0][1] - 1) * 0.02;
+    if (st.sec <= 0.15 && gapAfter >= 0.1) chunks.shift();
+    else break;
+  }
+  let start = 0;
+  let end = n0;
+  if (chunks.length) {
+    start = Math.max(0, chunks[0][0] * fl - Math.round(rate * 0.06));
+    end = Math.min(n0, (chunks[chunks.length - 1][1] + 1) * fl + Math.round(rate * 0.12));
+  }
+
+  const bodyLen = end - start;
+  const tail = Math.round(rate * 0.25);
+  const out = new Int16Array(bodyLen + tail);
+  const fin = Math.min(bodyLen, Math.round(rate * 0.012));
+  const fout = Math.min(bodyLen, Math.round(rate * 0.06));
+  for (let i = 0; i < bodyLen; i++) {
+    let v = x[start + i];
+    if (i < fin) v *= i / fin;
+    if (i >= bodyLen - fout) v *= (bodyLen - 1 - i) / fout;
+    out[i] = Math.max(-32000, Math.min(32000, Math.round(v * 32767)));
+  }
+  return out;
+}
+
 async function pcmToMp3(pcm: Buffer, sampleRate = 24000): Promise<{ mp3: Buffer; duration: number }> {
   const lamejs = await getLame();
-  const samples = new Int16Array(Math.floor(pcm.length / 2));
-  for (let i = 0; i < samples.length; i++) samples[i] = pcm.readInt16LE(i * 2);
-  const encoder = new lamejs.Mp3Encoder(1, sampleRate, 64);
+  const samples = cleanPcm(pcm, sampleRate);
+  const encoder = new lamejs.Mp3Encoder(1, sampleRate, 56);
   const chunks: Buffer[] = [];
   const block = 1152;
   for (let i = 0; i < samples.length; i += block) {

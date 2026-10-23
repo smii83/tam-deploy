@@ -217,7 +217,7 @@ class _AITutorScreenState extends State<AITutorScreen> {
                     ),
                     child: Center(
                       child: Text(
-                        widget.subject['em'] ?? '🤖',
+                        widget.subject['em'] ?? '👨‍🏫',
                         style: const TextStyle(fontSize: 20),
                       ),
                     ),
@@ -541,7 +541,7 @@ class _AITutorScreenState extends State<AITutorScreen> {
               ),
               child: Center(
                 child: Text(
-                  widget.subject['em'] ?? '🤖',
+                  widget.subject['em'] ?? '👨‍🏫',
                   style: const TextStyle(fontSize: 44),
                 ),
               ),
@@ -549,8 +549,8 @@ class _AITutorScreenState extends State<AITutorScreen> {
             const SizedBox(height: 24),
             Text(
               p.isAr
-                  ? 'مرحباً بك مع معلمك الذكي لمادة $_subName'
-                  : 'Welcome with your smart tutor for $_subName',
+                  ? 'مرحباً بك مع مدرس مادة $_subName'
+                  : 'Welcome to your $_subName teacher',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 18,
@@ -617,7 +617,7 @@ class _AITutorScreenState extends State<AITutorScreen> {
               ),
               child: Center(
                 child: Text(
-                  widget.subject['em'] ?? '🤖',
+                  widget.subject['em'] ?? '👨‍🏫',
                   style: const TextStyle(fontSize: 14),
                 ),
               ),
@@ -723,7 +723,7 @@ class _AITutorScreenState extends State<AITutorScreen> {
             ),
             child: Center(
               child: Text(
-                widget.subject['em'] ?? '🤖',
+                widget.subject['em'] ?? '👨‍🏫',
                 style: const TextStyle(fontSize: 14),
               ),
             ),

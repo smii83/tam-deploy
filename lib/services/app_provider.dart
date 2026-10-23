@@ -264,7 +264,7 @@ class AppProvider extends ChangeNotifier {
   String get summaries     => isAr ? 'ملخصات' : 'Summaries';
   String get examAnswers   => isAr ? 'أجوبة امتحانات' : 'Exam Answers';
   String get shortQuiz     => isAr ? 'اختبار قصير' : 'Quick Quiz';
-  String get askTeacher    => isAr ? 'اسأل المدرس' : 'Ask Teacher';
+  String get askTeacher    => isAr ? 'اسأل مدرس المادة' : 'Ask Subject Teacher';
   String get login         => isAr ? 'تسجيل الدخول' : 'Login';
   String get register      => isAr ? 'إنشاء حساب' : 'Register';
   String get name          => isAr ? 'الاسم الكامل' : 'Full Name';
@@ -291,8 +291,8 @@ class AppProvider extends ChangeNotifier {
   String get paySecure     => isAr ? 'الدفع يتم عبر متجر جهازك بشكل آمن' : 'Payment processed securely via your device store';
   String get correct       => isAr ? '✅ الإجابة الصحيحة' : '✅ Correct!';
   String get wrong         => isAr ? '❌ إجابة خاطئة' : '❌ Wrong';
-  String get cameraTitle   => isAr ? 'حل بالكاميرا' : 'Solve with Camera';
-  String get cameraSub     => isAr ? 'صوّر سؤالك ونحله فوراً' : 'Photo your question and we solve it';
+  String get cameraTitle   => isAr ? 'حل الواجبات' : 'Homework Help';
+  String get cameraSub     => isAr ? 'صوّر واجبك أو سؤالك ونحله لك خطوة بخطوة' : 'Snap your homework and we solve it step-by-step';
   String get takePhoto     => isAr ? 'التقط الصورة' : 'Take Photo';
   String get uploadPhoto   => isAr ? 'ارفع من الجهاز' : 'Upload from Device';
   String get solving       => isAr ? 'جاري حل السؤال...' : 'Solving...';

@@ -180,9 +180,11 @@ class _SubjectScreenState extends State<SubjectScreen> {
                 ),
                 const SizedBox(height: 12),
                 _WideCard(
-                  emoji: '🤖',
-                  title: p.isAr ? 'اسأل المدرس' : 'Ask Teacher',
-                  subtitle: p.isAr ? 'مدرسك الذكي المخصص ✨' : 'Your AI Tutor ✨',
+                  emoji: '👨‍🏫',
+                  title: p.isAr ? 'اسأل مدرس المادة' : 'Ask Subject Teacher',
+                  subtitle: p.isAr
+                      ? 'متوفر معك على مدار 24 ساعة'
+                      : 'Available 24/7 to help you',
                   accentColor: baseColor,
                   isDark: isDark,
                   isAr: p.isAr,
@@ -194,11 +196,11 @@ class _SubjectScreenState extends State<SubjectScreen> {
                 ),
                 const SizedBox(height: 12),
                 _WideCard(
-                  emoji: '📸',
-                  title: p.isAr ? 'صور وحل' : 'Solve by Photo',
+                  emoji: '📚',
+                  title: p.isAr ? 'حل الواجبات' : 'Homework Help',
                   subtitle: p.isAr
-                      ? 'صوّر السؤال → نحله فوراً ✨'
-                      : 'Photo question → Instant solution ✨',
+                      ? 'صوّر الواجب ← نحله لك خطوة بخطوة ✨'
+                      : 'Snap homework → Step-by-step solution ✨',
                   accentColor: baseColor,
                   isDark: isDark,
                   isAr: p.isAr,
@@ -531,7 +533,7 @@ class _WideCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            // Emoji icon (Right in RTL, Left in LTR)
+            // Emoji (Right in RTL, Left in LTR)
             Container(
               width: 52,
               height: 52,

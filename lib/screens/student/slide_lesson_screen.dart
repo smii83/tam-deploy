@@ -196,7 +196,6 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
         return Column(
           children: [
             _topBar(c),
-            if (c.lesson.versions.length > 1) _versionToggle(c),
             Expanded(child: _stage(c, landscape)),
             _progressBar(c),
             _controls(c, landscape),
@@ -238,57 +237,6 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
             ),
             tooltip: _dark ? 'الوضع الفاتح' : 'الوضع الغامق',
           ),
-        ],
-      ),
-    );
-  }
-
-  // ── Mukhtasar / Kamila ─────────────────────────────────────────────────────
-  Widget _versionToggle(LessonPlayerController c) {
-    Widget chip(String label, String v, IconData icon) {
-      final on = c.version == v;
-      return Expanded(
-        child: GestureDetector(
-          onTap: () => c.setVersion(v),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: BoxDecoration(
-              color: on ? _pal.accent : Colors.transparent,
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: 15, color: on ? Colors.white : _chrome.withValues(alpha: 0.6)),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontFamily: 'Cairo',
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12.5,
-                    color: on ? Colors.white : _chrome.withValues(alpha: 0.65),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 6, 16, 4),
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: _chrome.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          chip('النسخة الكاملة', InteractiveLesson.kamila, Icons.menu_book_rounded),
-          chip('نسخة الزبدة', InteractiveLesson.mukhtasar, Icons.bolt_rounded),
         ],
       ),
     );
@@ -751,7 +699,6 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
     final wasPlaying = c.playing;
     await c.pause();
     if (!mounted) return;
-    final controller = TextEditingController();
     final q = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -759,72 +706,101 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-              18, 18, 18, MediaQuery.of(ctx).viewInsets.bottom + 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('اكتب سؤالك للأستاذ',
-                  style: TextStyle(
-                    fontFamily: 'Almarai',
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                    color: _chrome,
-                  )),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                maxLines: 3,
-                minLines: 1,
-                maxLength: 300,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (v) => Navigator.pop(ctx, v),
-                style: TextStyle(fontFamily: 'Tajawal', fontSize: 15, color: _chrome),
-                decoration: InputDecoration(
-                  hintText: 'مثلاً: ليش نستخدم القانون العام هنا؟',
-                  hintStyle: TextStyle(
-                      fontFamily: 'Tajawal', color: _chrome.withValues(alpha: 0.4)),
-                  filled: true,
-                  fillColor: _chrome.withValues(alpha: 0.06),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () => Navigator.pop(ctx, controller.text),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _pal.accent,
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(13)),
-                  ),
-                  icon: const Icon(Icons.send_rounded, size: 18),
-                  label: const Text('ارسل سؤالك',
-                      style: TextStyle(
-                          fontFamily: 'Cairo', fontWeight: FontWeight.w800)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      builder: (ctx) => _QuestionSheet(chrome: _chrome, accent: _pal.accent),
     );
-    controller.dispose();
+    if (!mounted) return;
     if (q != null && q.trim().isNotEmpty) {
       await c.askByText(q);
     } else if (wasPlaying) {
       await c.resume();
     }
+  }
+}
+
+/// Bottom sheet for typing a question. Owns its controller so it is disposed
+/// only after the sheet's close animation has finished.
+class _QuestionSheet extends StatefulWidget {
+  final Color chrome;
+  final Color accent;
+  const _QuestionSheet({required this.chrome, required this.accent});
+
+  @override
+  State<_QuestionSheet> createState() => _QuestionSheetState();
+}
+
+class _QuestionSheetState extends State<_QuestionSheet> {
+  final TextEditingController _text = TextEditingController();
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  void _send() => Navigator.pop(context, _text.text);
+
+  @override
+  Widget build(BuildContext context) {
+    final chrome = widget.chrome;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+            18, 18, 18, MediaQuery.of(context).viewInsets.bottom + 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('اكتب سؤالك للأستاذ',
+                style: TextStyle(
+                  fontFamily: 'Almarai',
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                  color: chrome,
+                )),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _text,
+              autofocus: true,
+              maxLines: 3,
+              minLines: 1,
+              maxLength: 300,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => _send(),
+              style: TextStyle(fontFamily: 'Tajawal', fontSize: 15, color: chrome),
+              decoration: InputDecoration(
+                hintText: 'مثلاً: ليش نستخدم القانون العام هنا؟',
+                hintStyle: TextStyle(
+                    fontFamily: 'Tajawal', color: chrome.withValues(alpha: 0.4)),
+                filled: true,
+                fillColor: chrome.withValues(alpha: 0.06),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _send,
+                style: FilledButton.styleFrom(
+                  backgroundColor: widget.accent,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(13)),
+                ),
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: const Text('ارسل سؤالك',
+                    style: TextStyle(
+                        fontFamily: 'Cairo', fontWeight: FontWeight.w800)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

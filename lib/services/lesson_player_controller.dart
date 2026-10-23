@@ -2,14 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:video_player/video_player.dart';
 import '../models/interactive_lesson_model.dart';
+import 'ai_service.dart';
 
 /// State of the "interrupt the teacher" flow.
 enum AskPhase { idle, listening, thinking, answered, error }
@@ -21,7 +22,7 @@ enum AskPhase { idle, listening, thinking, answered, error }
 ///   if a segment has no audio it falls back to the device TTS.
 /// • Pause keeps the exact position (audio) / the exact word (device TTS).
 /// • Tap-to-talk: pauses the lesson, listens (silence ≥ 2 s ends the question),
-///   sends ONLY the current slide + question to the `lessonAsk` Cloud Function,
+///   sends ONLY the current slide + question to Gemini (via [AIService]),
 ///   speaks the answer, then "كمّل الدرس" resumes from the same moment.
 /// ─────────────────────────────────────────────────────────────────────────────
 class LessonPlayerController extends ChangeNotifier {
@@ -37,7 +38,7 @@ class LessonPlayerController extends ChangeNotifier {
   final VoidCallback? onFinished;
 
   // ── Public state ───────────────────────────────────────────────────────────
-  String _version;
+  final String _version;
   int _index = 0;
   bool _playing = false;
   bool _finished = false;
@@ -90,6 +91,9 @@ class LessonPlayerController extends ChangeNotifier {
   bool _sttReady = false;
   bool _submitted = false;
   int _askToken = 0; // invalidates in-flight answers when the student resumes
+  int _sttSession = 0; // ignores late callbacks from a previous listening session
+  bool _sttHeard = false; // the recognizer really started listening this session
+  bool _userStopped = false;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Lifecycle
@@ -215,7 +219,8 @@ class LessonPlayerController extends ChangeNotifier {
         var file = cached == null ? null : File(cached);
         if (file == null || !await file.exists()) {
           final dir = await getTemporaryDirectory();
-          file = File('${dir.path}/${ref.replaceAll('/', '_')}.mp3');
+          // `_v2`: clips were repaired server-side (edge noise removed) — bypass old cached copies.
+          file = File('${dir.path}/${ref.replaceAll('/', '_')}_v2.mp3');
           if (!await file.exists() || await file.length() == 0) {
             await file.writeAsBytes(base64Decode(await _loadClipB64(ref)));
           }
@@ -285,8 +290,10 @@ class LessonPlayerController extends ChangeNotifier {
     if (c == null || gen != _gen || _slideDoneHandled || !_playing) return;
     final v = c.value;
     if (!v.isInitialized || v.duration == Duration.zero) return;
+    // Rely on the real completion event; the position check is only a safety net
+    // and must not cut the end of the clip (that was audible as a click).
     if (v.isCompleted ||
-        v.position >= v.duration - const Duration(milliseconds: 120)) {
+        v.position >= v.duration - const Duration(milliseconds: 20)) {
       _onSlideDone(gen);
     }
   }
@@ -320,7 +327,11 @@ class LessonPlayerController extends ChangeNotifier {
     if (gen != _gen || _slideDoneHandled || _disposed) return;
     _slideDoneHandled = true;
     if (!isLast) {
-      _runSlide(_index + 1);
+      // A short, natural pause between explanation segments (also lets the
+      // finished audio session release before the next one starts).
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (gen == _gen && !_disposed) _runSlide(_index + 1);
+      });
     } else {
       _finished = true;
       _playing = false;
@@ -415,16 +426,6 @@ class LessonPlayerController extends ChangeNotifier {
     await goTo(slides.length - 1);
   }
 
-  Future<void> setVersion(String v) async {
-    if (v == _version || lesson.versions[v] == null) return;
-    _version = v;
-    _prefetchIndex = -1;
-    _prefetchFuture = null;
-    _notify();
-    _playing = true;
-    await _runSlide(0);
-  }
-
   Future<void> setSpeed(double s) async {
     _speed = s;
     _notify();
@@ -449,40 +450,55 @@ class LessonPlayerController extends ChangeNotifier {
     _answerMode = false;
   }
 
+  static const _micDenied =
+      'لازم تسمح للتطبيق باستخدام الميكروفون من إعدادات الجهاز. تقدر تكتب سؤالك بدلاً من ذلك ⌨️';
+  static const _noSpeech =
+      'ما سمعتك زين. اضغط المايك وتكلّم بصوت أوضح، أو اكتب سؤالك ⌨️';
+
   /// Tap once to start listening, tap again to stop early.
   Future<void> toggleVoiceQuestion() async {
     if (askPhase == AskPhase.listening) {
-      await _stt.stop();
+      _userStopped = true;
+      final s = _sttSession;
+      try {
+        await _stt.stop();
+      } catch (_) {}
+      // Some engines never deliver a final status after stop() → settle ourselves.
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (s == _sttSession) _finishListening();
+      });
       return;
     }
     await _enterInterrupt();
+    final session = ++_sttSession;
     question = '';
     answer = '';
     askError = '';
     _submitted = false;
+    _sttHeard = false;
+    _userStopped = false;
     askPhase = AskPhase.listening;
     _notify();
 
     try {
       if (!_sttReady) {
         _sttReady = await _stt.initialize(
-          onError: (e) {
-            debugPrint('STT error: ${e.errorMsg}');
-            _finishListening(fromError: true);
-          },
-          onStatus: (s) {
-            if (s == 'done' || s == 'notListening') _finishListening();
-          },
+          onError: _onSttError,
+          onStatus: _onSttStatus,
         );
       }
+      if (session != _sttSession || askPhase != AskPhase.listening) return;
       if (!_sttReady) {
-        _fail(
-            'لازم تسمح للتطبيق باستخدام الميكروفون. تقدر تكتب سؤالك بدلاً من ذلك.');
+        _fail(_micDenied);
         return;
       }
+      if (_stt.isListening) await _stt.cancel();
       final locale = await _pickArabicLocale();
+      if (session != _sttSession || askPhase != AskPhase.listening) return;
       await _stt.listen(
         onResult: (r) {
+          if (session != _sttSession || askPhase != AskPhase.listening) return;
+          _sttHeard = true;
           question = r.recognizedWords;
           _notify();
           if (r.finalResult) _submit(question);
@@ -493,13 +509,45 @@ class LessonPlayerController extends ChangeNotifier {
           listenMode: ListenMode.dictation,
           localeId: locale,
           listenFor: const Duration(seconds: 40),
-          pauseFor: const Duration(seconds: 2), // silence detection (VAD)
+          pauseFor: const Duration(seconds: 3), // silence detection (VAD)
         ),
       );
+      // Watchdog: never leave the student staring at "listening" forever.
+      Future.delayed(const Duration(seconds: 45), () {
+        if (session == _sttSession) _finishListening();
+      });
     } catch (e) {
       debugPrint('STT listen failed: $e');
-      _fail('ما قدرت أشغل المايك. تقدر تكتب سؤالك بدلاً من ذلك.');
+      if (session != _sttSession) return;
+      _fail('ما قدرت أشغل المايك. تقدر تكتب سؤالك بدلاً من ذلك ⌨️');
     }
+  }
+
+  void _onSttStatus(String s) {
+    debugPrint('STT status: $s');
+    if (s == 'listening') {
+      _sttHeard = true;
+      return;
+    }
+    // Ignore the stray 'notListening'/'done' some engines emit while starting up.
+    if ((s == 'done' || s == 'notListening') && _sttHeard) {
+      final session = _sttSession;
+      // Give the final recognition result a moment to arrive first.
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (session == _sttSession) _finishListening();
+      });
+    }
+  }
+
+  void _onSttError(SpeechRecognitionError e) {
+    final msg = e.errorMsg.toLowerCase();
+    debugPrint('STT error: $msg');
+    if (askPhase != AskPhase.listening || _submitted) return;
+    if (msg.contains('permission') || msg.contains('not-allowed')) {
+      _fail(_micDenied);
+      return;
+    }
+    _finishListening(fromError: true);
   }
 
   Future<String?> _pickArabicLocale() async {
@@ -521,12 +569,12 @@ class LessonPlayerController extends ChangeNotifier {
     if (askPhase != AskPhase.listening || _submitted) return;
     if (question.trim().isNotEmpty) {
       _submit(question);
-    } else if (fromError) {
-      _fail('ما قدرت أسمعك. جرّب مرة ثانية أو اكتب سؤالك.');
-    } else {
-      // Silence only → back to the paused lesson state
+    } else if (_userStopped && !fromError) {
+      // The student pressed stop without saying anything → back to the paused lesson
       askPhase = AskPhase.idle;
       _notify();
+    } else {
+      _fail(_noSpeech);
     }
   }
 
@@ -534,7 +582,10 @@ class LessonPlayerController extends ChangeNotifier {
   Future<void> askByText(String text) async {
     final q = text.trim();
     if (q.isEmpty) return;
-    await _stt.cancel();
+    _sttSession++; // drop any pending voice callbacks
+    try {
+      await _stt.cancel();
+    } catch (_) {}
     await _enterInterrupt();
     _submitted = false;
     answer = '';
@@ -552,28 +603,28 @@ class LessonPlayerController extends ChangeNotifier {
     final token = ++_askToken;
     final slide = current;
     try {
-      final fn = FirebaseFunctions.instanceFor(region: 'me-central1')
-          .httpsCallable('lessonAsk');
-      final res = await fn.call<Map<dynamic, dynamic>>({
-        'pdfId': lesson.pdfId,
-        'heading': slide.askHeading,
-        'content': slide.askContent,
-        'question': text,
-        'country': country,
-      });
+      final a = await AIService.lessonAsk(
+        lessonTitle: lesson.title,
+        subject: lesson.subject,
+        heading: slide.askHeading,
+        content: slide.askContent,
+        question: text,
+        country: country,
+      ).timeout(const Duration(seconds: 90));
       if (token != _askToken || _disposed) return;
-      final a = (res.data['answer'] as String?)?.trim() ?? '';
-      if (a.isEmpty) throw Exception('empty');
       answer = a;
       askPhase = AskPhase.answered;
       _notify();
       await _speakAnswer(a);
-    } on FirebaseFunctionsException catch (e) {
+    } catch (e) {
+      debugPrint('lessonAsk failed: $e');
       if (token != _askToken || _disposed) return;
-      _fail(e.message ?? 'ما قدرت أوصل سؤالك للأستاذ الحين. جرّب مرة ثانية.');
-    } catch (_) {
-      if (token != _askToken || _disposed) return;
-      _fail('تعذّر الوصول للأستاذ الذكي. تأكد من الإنترنت وحاول مرة ثانية.');
+      final s = e.toString();
+      if (s.contains('QUOTA_EXCEEDED')) {
+        _fail('الأستاذ عليه ضغط الحين. جرّب بعد دقيقة 🕐');
+      } else {
+        _fail('تعذّر الوصول للأستاذ الذكي. تأكد من الإنترنت وحاول مرة ثانية.');
+      }
     }
   }
 
@@ -600,6 +651,7 @@ class LessonPlayerController extends ChangeNotifier {
   /// "كمّل الدرس" — closes the overlay and continues from the exact moment.
   Future<void> resumeAfterAsk() async {
     _askToken++;
+    _sttSession++; // invalidates pending recognizer callbacks/watchdogs
     try {
       await _stt.cancel();
       await _tts.stop();

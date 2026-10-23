@@ -460,6 +460,64 @@ class AIService {
     }
   }
 
+  // ── Interactive whiteboard: student interrupts the teacher ───────────────
+  static final Map<String, String> _lessonAskCache = {};
+
+  /// Answers a question about the slide currently on the whiteboard.
+  /// The answer is read aloud, so it is plain spoken Arabic (no markdown/emoji).
+  /// Throws on failure so the caller can show a proper error state.
+  static Future<String> lessonAsk({
+    required String lessonTitle,
+    required String subject,
+    required String heading,
+    required String content,
+    required String question,
+    String country = 'kw',
+  }) async {
+    final cacheKey = '$lessonTitle|$heading|${question.trim()}';
+    final cached = _lessonAskCache[cacheKey];
+    if (cached != null) return cached;
+
+    final dialect = country == 'sa'
+        ? 'لهجة سعودية خليجية طبيعية'
+        : country == 'ae'
+            ? 'لهجة إماراتية خليجية طبيعية'
+            : 'لهجة كويتية خليجية طبيعية';
+
+    final system =
+        'أنت مدرس خليجي محترف بشوش يعطي درساً خصوصياً لطالب كأنك جالس معه في البيت. '
+        'تتحدث بـ$dialect مريحة وغير رسمية. '
+        'كنت تشرح درس "$lessonTitle"${subject.isNotEmpty ? ' في مادة "$subject"' : ''} '
+        'والطالب قاطعك الآن بسؤال — توقف بشكل طبيعي وأجب بدفء. '
+        'أجب بثلاث إلى ست جمل طبيعية فقط، معتمداً على محتوى الشريحة المعروضة. '
+        'ابدأ بعبارة تُظهر أنك استقبلت سؤاله بارتياح مثل: "آه والله سؤال حلو" أو "يا هلا بالسؤال". '
+        'الإجابة ستُقرأ بصوت عالٍ، فاكتب كلاماً عادياً مفهوماً بالأذن بدون ماركداون أو نقاط أو رموز أو إيموجي، '
+        'واكتب المعادلات بالكلمات. '
+        'إذا كان السؤال خارج نطاق المادة فاعتذر بلطف وأعده للدرس. لا تطرح سؤالاً في نهاية إجابتك.';
+
+    String clip(String s, int max) => s.length > max ? s.substring(0, max) : s;
+    final prompt = 'الشريحة المعروضة الآن:\n'
+        'العنوان: ${clip(heading, 300)}\n'
+        'المحتوى: ${clip(content, 1500)}\n\n'
+        'سؤال الطالب: ${clip(question.trim(), 400)}';
+
+    final raw = await _callGemini(
+      systemInstruction: system,
+      contents: [
+        {
+          'role': 'user',
+          'parts': [
+            {'text': prompt}
+          ]
+        }
+      ],
+    );
+    final answer = raw.replaceAll(RegExp(r'[*_#`]'), '').trim();
+    if (answer.isEmpty) throw Exception('EMPTY_RESPONSE');
+    _lessonAskCache[cacheKey] = answer;
+    return answer;
+  }
+
   // ── Fallback Quiz ────────────────────────────────────────────────────────
   static List<Map<String, dynamic>> _fallbackQuiz(String subject) => [
         {
