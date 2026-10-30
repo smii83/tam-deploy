@@ -79,11 +79,16 @@ class InteractiveLesson {
   final String subject;
   final Map<String, List<LessonSlide>> versions; // 'mukhtasar' | 'kamila'
 
+  /// Gemini prebuilt voice the narration was generated with (`content.voice`).
+  /// Spoken answers to student questions reuse it so the teacher sounds the same.
+  final String voice;
+
   const InteractiveLesson({
     required this.pdfId,
     required this.title,
     required this.subject,
     required this.versions,
+    this.voice = 'Charon',
   });
 
   static const String mukhtasar = 'mukhtasar';
@@ -211,11 +216,13 @@ class InteractiveLesson {
       final v = (versions[key] as Map?)?.cast<String, dynamic>();
       if (v != null) result[key] = build(v);
     }
+    final voice = (m['voice'] as String?)?.trim();
     return InteractiveLesson(
       pdfId: pdfId,
       title: title,
       subject: subject,
       versions: result,
+      voice: (voice != null && voice.isNotEmpty) ? voice : 'Charon',
     );
   }
 }

@@ -87,6 +87,11 @@ class LessonPlayerController extends ChangeNotifier {
   int _ttsProgress = 0; // last spoken char (absolute)
   bool _answerMode = false;
 
+  // The teacher's spoken answer: Gemini TTS (same voice as the lesson narration)
+  VideoPlayerController? _answerAudio;
+  VoidCallback? _answerListener;
+  File? _answerFile;
+
   final SpeechToText _stt = SpeechToText();
   bool _sttReady = false;
   bool _submitted = false;
@@ -149,6 +154,7 @@ class LessonPlayerController extends ChangeNotifier {
     _tts.setProgressHandler((a, b, c, d) {});
     _tts.stop();
     _stt.cancel();
+    _stopAnswerAudio();
     _disposeAudio();
     _prefetchFuture?.then((c) => c.dispose()).catchError((_) {});
     elapsed.dispose();
@@ -446,6 +452,7 @@ class LessonPlayerController extends ChangeNotifier {
     try {
       await _tts.stop(); // in case an answer was still being spoken
     } catch (_) {}
+    await _stopAnswerAudio();
     answerSpeaking = false;
     _answerMode = false;
   }
@@ -615,7 +622,7 @@ class LessonPlayerController extends ChangeNotifier {
       answer = a;
       askPhase = AskPhase.answered;
       _notify();
-      await _speakAnswer(a);
+      await _speakAnswer(a, token);
     } catch (e) {
       debugPrint('lessonAsk failed: $e');
       if (token != _askToken || _disposed) return;
@@ -628,7 +635,79 @@ class LessonPlayerController extends ChangeNotifier {
     }
   }
 
-  Future<void> _speakAnswer(String text) async {
+  /// Reads the answer aloud with Gemini TTS — the exact voice/style the lesson
+  /// narration was generated with. Only if that fails (offline, quota…) does it
+  /// fall back to the device voice, so the student always hears an answer.
+  Future<void> _speakAnswer(String text, int token) async {
+    answerSpeaking = true;
+    _notify();
+    try {
+      final wav = await AIService.synthesizeSpeech(text, voice: lesson.voice)
+          .timeout(const Duration(seconds: 60));
+      if (token != _askToken || _disposed) return;
+      await _stopAnswerAudio();
+
+      VideoPlayerController c;
+      if (kIsWeb) {
+        c = VideoPlayerController.networkUrl(
+            Uri.parse('data:audio/wav;base64,${base64Encode(wav)}'));
+      } else {
+        final dir = await getTemporaryDirectory();
+        final file = File(
+            '${dir.path}/tam_answer_${DateTime.now().microsecondsSinceEpoch}.wav');
+        await file.writeAsBytes(wav, flush: true);
+        _answerFile = file;
+        c = VideoPlayerController.file(file);
+      }
+      await c.initialize();
+      if (token != _askToken || _disposed) {
+        await c.dispose();
+        return;
+      }
+      _answerAudio = c;
+      _answerListener = () {
+        if (_disposed || _answerAudio != c || !answerSpeaking) return;
+        final v = c.value;
+        if (v.isInitialized &&
+            (v.isCompleted ||
+                (v.duration > Duration.zero &&
+                    v.position >= v.duration - const Duration(milliseconds: 30)))) {
+          answerSpeaking = false;
+          _notify();
+        }
+      };
+      c.addListener(_answerListener!);
+      await c.setVolume(1.0);
+      await c.play();
+    } catch (e) {
+      debugPrint('Answer TTS failed → device voice: $e');
+      if (token != _askToken || _disposed) return;
+      await _stopAnswerAudio();
+      await _speakAnswerOnDevice(text);
+    }
+  }
+
+  Future<void> _stopAnswerAudio() async {
+    final c = _answerAudio;
+    final f = _answerFile;
+    _answerAudio = null;
+    _answerFile = null;
+    if (c != null) {
+      if (_answerListener != null) c.removeListener(_answerListener!);
+      try {
+        await c.dispose();
+      } catch (_) {}
+    }
+    _answerListener = null;
+    if (f != null) {
+      try {
+        await f.delete();
+      } catch (_) {}
+    }
+  }
+
+  /// Offline fallback only.
+  Future<void> _speakAnswerOnDevice(String text) async {
     try {
       _answerMode = true;
       answerSpeaking = true;
@@ -656,6 +735,7 @@ class LessonPlayerController extends ChangeNotifier {
       await _stt.cancel();
       await _tts.stop();
     } catch (_) {}
+    await _stopAnswerAudio();
     _answerMode = false;
     answerSpeaking = false;
     askPhase = AskPhase.idle;

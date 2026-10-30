@@ -212,16 +212,51 @@ class FirestoreDataService {
     if (type.isNotEmpty) {
       list = list.where((p) => p['pdf_type'] == type).toList();
     }
-    list.sort((a, b) {
-      final aDate = a['created'] ?? a['created_at'];
-      final bDate = b['created'] ?? b['created_at'];
-      if (aDate == null && bDate == null) return 0;
-      if (aDate == null) return 1;
-      if (bDate == null) return -1;
-      return bDate.toString().compareTo(aDate.toString());
-    });
+    list.sort(_comparePdfs);
     return list;
   }
+
+  static int _millis(dynamic v) {
+    if (v == null) return 0;
+    if (v is Timestamp) return v.millisecondsSinceEpoch;
+    if (v is DateTime) return v.millisecondsSinceEpoch;
+    if (v is num) return v.toInt();
+    return DateTime.tryParse(v.toString())?.millisecondsSinceEpoch ?? 0;
+  }
+
+  /// Orders PDFs for the student: explicit `sort_order` first, then the order they
+  /// were uploaded (= lesson order), then a natural title order ("2" before "10").
+  static int _comparePdfs(Map<String, dynamic> a, Map<String, dynamic> b) {
+    final ao = a['sort_order'] as num?;
+    final bo = b['sort_order'] as num?;
+    if (ao != null || bo != null) {
+      final c = (ao ?? double.maxFinite).compareTo(bo ?? double.maxFinite);
+      if (c != 0) return c;
+    }
+    final ad = _millis(a['created'] ?? a['created_at']);
+    final bd = _millis(b['created'] ?? b['created_at']);
+    if (ad != bd) return ad.compareTo(bd);
+    return _naturalCompare(_pdfTitle(a), _pdfTitle(b));
+  }
+
+  static String _pdfTitle(Map<String, dynamic> p) =>
+      (p['title_ar'] ?? p['name'] ?? p['title_en'] ?? '').toString();
+
+  static int _naturalCompare(String a, String b) {
+    final re = RegExp(r'(\d+)|(\D+)');
+    final pa = re.allMatches(a).map((m) => m.group(0)!).toList();
+    final pb = re.allMatches(b).map((m) => m.group(0)!).toList();
+    for (var i = 0; i < pa.length && i < pb.length; i++) {
+      final na = int.tryParse(pa[i]);
+      final nb = int.tryParse(pb[i]);
+      final c = (na != null && nb != null)
+          ? na.compareTo(nb)
+          : pa[i].compareTo(pb[i]);
+      if (c != 0) return c;
+    }
+    return pa.length.compareTo(pb.length);
+  }
+
 
   // ══════════════════════════════════════════════════════════════════════════
   // INTERACTIVE LESSONS (السبورة التفاعلية) — generated from summary PDFs

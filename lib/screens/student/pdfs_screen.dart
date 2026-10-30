@@ -8,6 +8,7 @@ import 'package:flutter_pdfview/flutter_pdfview.dart';
 import '../../services/app_provider.dart';
 import '../../services/firestore_data_service.dart';
 import '../../utils/app_theme.dart';
+import '../../utils/security.dart';
 import '../../widgets/skeleton_loader.dart';
 
 /// صفحة ملخصات المادة — تعرض ملفات PDF المرفوعة (Firestore)
@@ -35,7 +36,14 @@ class _PDFsScreenState extends State<PDFsScreen> {
   @override
   void initState() {
     super.initState();
+    SecurityUtils.enableSecureMode(); // summaries are protected content
     _load();
+  }
+
+  @override
+  void dispose() {
+    SecurityUtils.disableSecureMode();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -251,109 +259,167 @@ class _PDFsScreenState extends State<PDFsScreen> {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: _pdfs.length,
-      itemBuilder: (_, i) {
-        final d = _pdfs[i];
-        final title = p.isAr
-            ? (d['title_ar'] ?? 'ملف ${i + 1}')
-            : (d['title_en'] ?? 'File ${i + 1}');
-        final url = _fileUrl(d);
-        final pdfType = d['pdf_type'] as String? ?? '';
-        final typeLabels = {
-          'summary': ('ملخص', const Color(0xFF7C5CFC)),
-          'exam_answer': ('حل امتحان', const Color(0xFF10B981)),
-          'worksheet': ('ورقة عمل', const Color(0xFFF59E0B)),
-        };
-        final typeInfo = typeLabels[pdfType];
+      itemBuilder: (_, i) => _summaryCard(p, color, _pdfs[i], i),
+    );
+  }
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: BorderRadius.circular(16),
-            border:
-                Border.all(color: color.withValues(alpha: 0.2), width: 1.5),
-            boxShadow: [
-              BoxShadow(
-                  color: color.withValues(alpha: 0.08),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3))
-            ],
-          ),
-          child: ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            leading: Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14)),
-              child: const Center(
-                  child: Text('📄', style: TextStyle(fontSize: 22))),
-            ),
-            title: Text(title,
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w700)),
-            subtitle: typeInfo != null
-                ? Padding(
-                    padding: const EdgeInsets.only(top: 3),
-                    child: Container(
-                      alignment: Alignment.centerRight,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: typeInfo.$2.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          typeInfo.$1,
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: typeInfo.$2,
-                              fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ),
-                  )
-                : null,
-            trailing: url.isNotEmpty
-                ? ElevatedButton.icon(
-                    icon:
-                        const Icon(Icons.menu_book_rounded, size: 16),
-                    label: const Text('اقرأ'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: color,
-                      foregroundColor: Colors.white,
-                      textStyle: const TextStyle(
-                          fontFamily: 'Cairo',
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      elevation: 0,
-                    ),
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => PdfViewerScreen(
-                              url: url, title: title, color: color)),
-                    ),
-                  )
-                : Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                        color: AppTheme.textSec.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8)),
-                    child: Text('قريباً',
-                        style: TextStyle(
-                            fontSize: 10, color: AppTheme.textSec))),
-          ),
+  /// The summary's own name (never a generic "file N" when a real title exists).
+  String _titleOf(AppProvider p, Map<String, dynamic> d, int i) {
+    String s(dynamic v) => (v ?? '').toString().trim();
+    final ar = s(d['title_ar']).isNotEmpty ? s(d['title_ar']) : s(d['name']);
+    final en = s(d['title_en']);
+    final primary = p.isAr ? ar : en;
+    if (primary.isNotEmpty) return primary;
+    final other = p.isAr ? en : ar;
+    if (other.isNotEmpty) return other;
+    return p.isAr ? 'ملخص ${i + 1}' : 'Summary ${i + 1}';
+  }
+
+  Widget _summaryCard(
+      AppProvider p, Color color, Map<String, dynamic> d, int i) {
+    final isDark = p.isDark;
+    final title = _titleOf(p, d, i);
+    final url = _fileUrl(d);
+    final pdfType = d['pdf_type'] as String? ?? '';
+    final typeLabels = {
+      'summary': (p.isAr ? 'ملخص' : 'Summary', const Color(0xFF7C5CFC)),
+      'exam_answer': (p.isAr ? 'حل امتحان' : 'Exam solution', const Color(0xFF10B981)),
+      'worksheet': (p.isAr ? 'ورقة عمل' : 'Worksheet', const Color(0xFFF59E0B)),
+    };
+    final typeInfo = typeLabels[pdfType];
+    final textMain = isDark ? Colors.white : const Color(0xFF1A1A2E);
+    final canOpen = url.isNotEmpty;
+
+    void open() => Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) =>
+                  PdfViewerScreen(url: url, title: title, color: color)),
         );
-      },
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.22), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+              color: color.withValues(alpha: 0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 3))
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: canOpen ? open : null,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Order number
+                Container(
+                  width: 40,
+                  height: 40,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topRight,
+                      end: Alignment.bottomLeft,
+                      colors: [color, color.withValues(alpha: 0.70)],
+                    ),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Text(
+                    '${i + 1}',
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        fontFamily: 'Cairo'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 14,
+                            height: 1.35,
+                            fontWeight: FontWeight.w800,
+                            fontFamily: 'Cairo',
+                            color: textMain),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          if (typeInfo != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: typeInfo.$2.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                typeInfo.$1,
+                                style: TextStyle(
+                                    fontSize: 10,
+                                    color: typeInfo.$2,
+                                    fontFamily: 'Cairo',
+                                    fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          const Spacer(),
+                          if (canOpen)
+                            TextButton.icon(
+                              onPressed: open,
+                              icon: const Icon(Icons.menu_book_rounded, size: 16),
+                              label: Text(p.isAr ? 'اقرأ' : 'Read'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                backgroundColor: color,
+                                visualDensity: VisualDensity.compact,
+                                textStyle: const TextStyle(
+                                    fontFamily: 'Cairo',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 4),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                              ),
+                            )
+                          else
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                  color: AppTheme.textSec.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(8)),
+                              child: Text(p.isAr ? 'قريباً' : 'Soon',
+                                  style: TextStyle(
+                                      fontSize: 10, color: AppTheme.textSec)),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -389,6 +455,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   @override
   void initState() {
     super.initState();
+    SecurityUtils.enableSecureMode(); // block screenshots / screen recording of the PDF
     if (!kIsWeb) {
       _downloadAndOpen();
     } else {
@@ -398,6 +465,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   @override
   void dispose() {
+    SecurityUtils.disableSecureMode();
     super.dispose();
   }
 

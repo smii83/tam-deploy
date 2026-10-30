@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/tts_audio.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────────
 /// AI Service v3 — Direct Google Gemini 2.5 Flash API with Firestore Config
@@ -492,7 +493,8 @@ class AIService {
         'أجب بثلاث إلى ست جمل طبيعية فقط، معتمداً على محتوى الشريحة المعروضة. '
         'ابدأ بعبارة تُظهر أنك استقبلت سؤاله بارتياح مثل: "آه والله سؤال حلو" أو "يا هلا بالسؤال". '
         'الإجابة ستُقرأ بصوت عالٍ، فاكتب كلاماً عادياً مفهوماً بالأذن بدون ماركداون أو نقاط أو رموز أو إيموجي، '
-        'واكتب المعادلات بالكلمات. '
+        'واكتب المعادلات والأرقام والوحدات والرموز بالكلمات كما تُنطق (مثال: "خمسة" وليس "5"، "متر لكل ثانية" وليس "m/s")، '
+        'واستخدم جملاً قصيرة بعلامات ترقيم واضحة ليكون الإلقاء طبيعياً. '
         'إذا كان السؤال خارج نطاق المادة فاعتذر بلطف وأعده للدرس. لا تطرح سؤالاً في نهاية إجابتك.';
 
     String clip(String s, int max) => s.length > max ? s.substring(0, max) : s;
@@ -516,6 +518,137 @@ class AIService {
     if (answer.isEmpty) throw Exception('EMPTY_RESPONSE');
     _lessonAskCache[cacheKey] = answer;
     return answer;
+  }
+
+  // ── Interactive whiteboard: the teacher's SPOKEN answer (Gemini TTS) ──────
+  // Same engine, voice and director's notes the lesson narration is generated
+  // with (scratch/audio_tools/generate_audio.js) → the answer sounds like the
+  // same Gulf-Arabic teacher instead of the robotic device voice.
+  static const String defaultVoice = 'Charon';
+  static const String _ttsStyle =
+      "# AUDIO PROFILE: Ustaz Tam\n## THE SCENE: A calm, friendly classroom in Kuwait.\n### DIRECTOR'S NOTES\n"
+      'Style: a warm, clear and confident school teacher explaining to a student; natural and encouraging.\n'
+      'Accent: natural Kuwaiti Gulf Arabic.\n'
+      'Pace: calm and steady, with short natural pauses between sentences.\n'
+      'Pronunciation: scientific terms pronounced accurately.\n\n#### TRANSCRIPT\n';
+
+  /// Same order the lesson audio is generated with (newest/best first).
+  static const List<String> _ttsModels = [
+    'gemini-3.8-flash-tts',
+    'gemini-3.8-flash-lite-tts',
+    'gemini-3.1-flash-tts-preview',
+    'gemini-2.5-flash-preview-tts',
+  ];
+  static final Set<String> _ttsUnavailable = {};
+  static final Map<String, Uint8List> _ttsCache = {};
+
+  /// Synthesizes [text] with Gemini TTS and returns a cleaned, playable WAV.
+  /// Throws when no model/key could produce audio (caller falls back to device TTS).
+  static Future<Uint8List> synthesizeSpeech(String text,
+      {String voice = defaultVoice}) async {
+    final spoken = text.trim();
+    if (spoken.isEmpty) throw Exception('EMPTY_TEXT');
+    final cacheKey = '$voice|$spoken';
+    final cached = _ttsCache[cacheKey];
+    if (cached != null) return cached;
+
+    await _refreshConfigIfNeeded();
+    final body = jsonEncode({
+      'contents': [
+        {
+          'parts': [
+            {'text': _ttsStyle + (spoken.length > 1200 ? spoken.substring(0, 1200) : spoken)}
+          ]
+        }
+      ],
+      'generationConfig': {
+        'responseModalities': ['AUDIO'],
+        'speechConfig': {
+          'voiceConfig': {
+            'prebuiltVoiceConfig': {'voiceName': voice}
+          }
+        },
+      },
+    });
+
+    String lastError = 'TTS_FAILED';
+    for (final key in <String>{_apiKey, _defaultApiKey}) {
+      var keyRejected = false;
+      for (final model in _ttsModels) {
+        if (keyRejected) break;
+        if (_ttsUnavailable.contains(model)) continue;
+        for (var attempt = 0; attempt < 2; attempt++) {
+          http.Response r;
+          try {
+            r = await http
+                .post(
+                  Uri.parse(
+                      'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent'),
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'x-goog-api-key': key,
+                  },
+                  body: body,
+                )
+                .timeout(const Duration(seconds: 40));
+          } catch (e) {
+            lastError = 'NETWORK_ERROR';
+            if (attempt == 0) {
+              await Future.delayed(const Duration(milliseconds: 900));
+              continue;
+            }
+            break;
+          }
+
+          final s = r.statusCode;
+          if (s == 200) {
+            try {
+              final decoded =
+                  jsonDecode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
+              final parts = ((decoded['candidates'] as List?)?.firstOrNull
+                      as Map?)?['content']?['parts'] as List?;
+              final inline = parts
+                  ?.whereType<Map>()
+                  .map((p) => p['inlineData'])
+                  .whereType<Map>()
+                  .where((d) => (d['data'] as String?)?.isNotEmpty == true)
+                  .firstOrNull;
+              if (inline != null) {
+                final wav = TtsAudio.cleanedWavFromGemini(
+                    base64Decode(inline['data'] as String),
+                    inline['mimeType'] as String?);
+                _ttsCache[cacheKey] = wav;
+                return wav;
+              }
+            } catch (e) {
+              debugPrint('Gemini TTS parse error ($model): $e');
+            }
+            lastError = 'NO_AUDIO';
+            if (attempt == 0) continue; // occasionally a model answers without audio
+            break;
+          }
+
+          debugPrint('Gemini TTS error $s ($model)');
+          if (s == 429 || s >= 500) {
+            lastError = s == 429 ? 'QUOTA_EXCEEDED' : 'API_ERROR_$s';
+            if (attempt == 0 && s != 429) {
+              await Future.delayed(const Duration(milliseconds: 900));
+              continue;
+            }
+            break; // next model
+          }
+          if (s == 401 || s == 403) {
+            lastError = 'API_ERROR_$s';
+            keyRejected = true;
+            break;
+          }
+          if (s == 404) _ttsUnavailable.add(model); // model not offered → skip next time
+          lastError = 'API_ERROR_$s';
+          break;
+        }
+      }
+    }
+    throw Exception(lastError);
   }
 
   // ── Fallback Quiz ────────────────────────────────────────────────────────
