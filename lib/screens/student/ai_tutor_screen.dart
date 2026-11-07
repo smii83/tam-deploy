@@ -46,6 +46,11 @@ class _AITutorScreenState extends State<AITutorScreen> {
     final sub = widget.subject['en']?.toLowerCase() ?? '';
     final isAr = p.isAr;
     final namePart = _firstName.isNotEmpty ? ' يا $_firstName' : '';
+    final dialectLabel = p.selectedCountry == 'sa'
+        ? 'بلهجتنا السعودية الحلوة'
+        : p.selectedCountry == 'ae'
+            ? 'بلهجتنا الإماراتية الحلوة'
+            : 'بلهجتنا الكويتية الحلوة';
 
     String welcomeText = '';
     if (sub.contains('math') || sub.contains('رياضيات')) {
@@ -54,7 +59,7 @@ class _AITutorScreenState extends State<AITutorScreen> {
           : 'Welcome$namePart! I am your Math teacher. How can I help you today?';
     } else if (sub.contains('english') || sub.contains('إنجليزي')) {
       welcomeText = isAr
-          ? 'Welcome$namePart! أنا معلمتك للغة الإنجليزية، وراح نتقن اللغة مع بعض بلهجتنا الكويتية الحلوة، شنو ودك نتعلم اليوم؟'
+          ? 'Welcome$namePart! أنا معلمتك للغة الإنجليزية، وراح نتقن اللغة مع بعض $dialectLabel، شنو ودك نتعلم اليوم؟'
           : 'Welcome$namePart! I am your English teacher. Let\'s master the language together!';
     } else {
       welcomeText = isAr
@@ -334,8 +339,9 @@ class _AITutorScreenState extends State<AITutorScreen> {
                       return _bubble(m['role']!, m['content']!, p);
                     }),
           ),
-          // Suggestions
-          if (_history.isEmpty) _buildSuggestions(p, subjectColor),
+          // Suggestions (shown until the student sends their first question)
+          if (!_history.any((m) => m['role'] == 'user') && !_loading)
+            _buildSuggestions(p, subjectColor),
           // Floating Input Panel
           Container(
             padding: EdgeInsets.fromLTRB(

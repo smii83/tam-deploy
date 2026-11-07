@@ -1,6 +1,9 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import '../services/app_provider.dart';
@@ -20,7 +23,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _name = '', _email = '';
   int _grade = 12;
   bool _subscribed = false;
+  bool _restoring = false;
   bool _showPwdForm = false, _savingPwd = false;
+  StreamSubscription<List<PurchaseDetails>>? _restoreSub;
   final _opCtrl = TextEditingController();
   final _npCtrl = TextEditingController();
   final _cpCtrl = TextEditingController();
@@ -34,10 +39,124 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    _restoreSub?.cancel();
     _opCtrl.dispose();
     _npCtrl.dispose();
     _cpCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _restorePurchasesFromSettings(AppProvider p) async {
+    final isAr = p.isAr;
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.iOS &&
+            defaultTargetPlatform != TargetPlatform.android)) {
+      _snack(isAr
+          ? 'ميزة استعادة المشتريات متاحة فقط عبر تطبيق iOS أو Android الرسمي'
+          : 'Restore Purchases is only available on the official iOS or Android app');
+      return;
+    }
+    if (_restoring) return;
+    setState(() => _restoring = true);
+    _snack(isAr
+        ? 'جاري التحقق من المشتريات السابقة واستعادتها...'
+        : 'Checking and restoring previous purchases...');
+
+    bool restoredAny = false;
+    await _restoreSub?.cancel();
+    _restoreSub = InAppPurchase.instance.purchaseStream.listen((purchases) async {
+      for (final item in purchases) {
+        if (item.status == PurchaseStatus.restored ||
+            item.status == PurchaseStatus.purchased) {
+          final ok = await _activateRestoredPurchase(item);
+          if (ok && item.pendingCompletePurchase) {
+            await InAppPurchase.instance.completePurchase(item);
+          }
+          if (ok && !restoredAny) {
+            restoredAny = true;
+            if (mounted) {
+              setState(() {
+                _subscribed = true;
+                _restoring = false;
+              });
+              _snack(isAr
+                  ? '✅ تم استعادة اشتراكك وتفعيله بنجاح!'
+                  : '✅ Your subscription has been restored and activated!');
+            }
+          }
+        } else if (item.status == PurchaseStatus.error ||
+            item.status == PurchaseStatus.canceled) {
+          if (item.pendingCompletePurchase) {
+            await InAppPurchase.instance.completePurchase(item);
+          }
+        }
+      }
+    });
+
+    try {
+      await InAppPurchase.instance.restorePurchases();
+      await Future.delayed(const Duration(seconds: 6));
+      if (mounted && _restoring && !restoredAny) {
+        setState(() => _restoring = false);
+        _snack(isAr
+            ? 'لا توجد مشتريات سابقة لاستعادتها على هذا الحساب'
+            : 'No previous purchases were found for this account');
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _restoring = false);
+        _snack(isAr
+            ? 'تعذر استعادة المشتريات حالياً'
+            : 'Could not restore purchases');
+      }
+    }
+  }
+
+  Future<bool> _activateRestoredPurchase(PurchaseDetails p) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return false;
+    final txId = p.purchaseID?.trim() ?? '';
+    final receipt = p.verificationData.serverVerificationData;
+    final productId = p.productID.isNotEmpty ? p.productID : 'tam_6months_12kwd';
+    final platform =
+        defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
+    final txDateMs = int.tryParse(p.transactionDate ?? '');
+    final effectiveTxId = txId.isNotEmpty
+        ? txId
+        : (p.transactionDate != null
+            ? 'tx_${user.uid}_${p.transactionDate}'
+            : '');
+
+    if (effectiveTxId.isNotEmpty) {
+      try {
+        final functions = FirebaseFunctions.instanceFor(region: 'me-central1');
+        await functions
+            .httpsCallable('activateSubscription')
+            .call({
+              'productId': productId,
+              'platform': platform,
+              'transactionId': effectiveTxId,
+              'receiptData': receipt,
+              'userEmail': user.email ?? '',
+              if (txDateMs != null) 'transactionDateMs': txDateMs,
+            })
+            .timeout(const Duration(seconds: 12));
+        return true;
+      } catch (e) {
+        debugPrint('Settings restore CF fallback: $e');
+      }
+    }
+    try {
+      return await FirestoreDataService.activateSubscription(
+        firebaseUid: user.uid,
+        userEmail: user.email ?? '',
+        plan: productId,
+        transactionId: effectiveTxId,
+        platform: platform,
+      );
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Fill UI fields instantly from AppProvider cache, then fetch subscription in background.
@@ -275,488 +394,490 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final p = context.watch<AppProvider>();
+    final isPasswordUser = context.watch<AuthService>().isPasswordUser;
     return Scaffold(
       appBar: AppBar(title: Text(p.settings), automaticallyImplyLeading: false),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // ── Profile Card ──────────────────────────────────────
-          Container(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 600),
+          child: ListView(
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: AppTheme.gradientFor(p.themeId),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: p.isDark ? 0.20 : 0.40),
-                width: 1.2,
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.3), width: 1.5),
-                  ),
-                  child: const Center(
-                    child: Icon(
-                      Icons.person_outline_rounded,
-                      color: Colors.white,
-                      size: 26,
-                    ),
+            children: [
+              // ── Profile Card ──────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: AppTheme.gradientFor(p.themeId),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: p.isDark ? 0.20 : 0.40),
+                    width: 1.2,
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _name,
-                        style: const TextStyle(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.3), width: 1.5),
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.person_outline_rounded,
                           color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Cairo',
+                          size: 26,
                         ),
                       ),
-                      Text(
-                        _email,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.2)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.school_outlined,
-                              color: Colors.white,
-                              size: 13,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'الصف $_grade • ${_subscribed ? p.subscribed : "غير مشترك"}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                fontFamily: 'Cairo',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // ── Appearance ────────────────────────────────────────
-          _sectionLabel(p.appearance, p),
-          _settingCard([
-            _settingRow(
-              icon: Icons.dark_mode_outlined,
-              iconBg: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
-              iconColor: AppTheme.primaryFor(p.themeId),
-              title: p.darkMode,
-              subtitle: p.isDark ? 'مفعّل' : 'غير مفعّل',
-              trailing: Switch(
-                value: p.isDark,
-                onChanged: (_) => p.toggleDark(),
-                activeThumbColor: Colors.white,
-                activeTrackColor: AppTheme.primaryFor(p.themeId).withValues(alpha: 0.5),
-                thumbColor: WidgetStateProperty.resolveWith(
-                  (s) => s.contains(WidgetState.selected) ? Colors.white : null,
-                ),
-              ),
-            ),
-          ], p),
-
-          // ── Theme Picker ───────────────────────────────────────
-          _sectionLabel(p.isAr ? 'الثيم' : 'Theme', p),
-          Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.30 : 0.15)),
-            ),
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  p.isAr ? 'اختر ثيمك المفضل' : 'Choose your theme',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.primaryFor(p.themeId),
-                    fontWeight: FontWeight.w700,
-                    fontFamily: 'Cairo',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 90,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: AppTheme.allThemes.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 10),
-                    itemBuilder: (context, i) {
-                      final t = AppTheme.allThemes[i];
-                      final selected = p.themeId == t.id;
-                      return GestureDetector(
-                        onTap: () => p.setTheme(t.id),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 250),
-                          curve: Curves.easeOutCubic,
-                          width: 74,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            gradient: LinearGradient(
-                              colors: t.gradColors,
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            border: Border.all(
-                              color:
-                                  selected ? Colors.white : Colors.transparent,
-                              width: 2.5,
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(t.emoji,
-                                  style: const TextStyle(fontSize: 26)),
-                              const SizedBox(height: 4),
-                              Text(
-                                t.nameAr,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                  fontFamily: 'Cairo',
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              if (selected)
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 3),
-                                  child: Icon(Icons.check_circle,
-                                      color: Colors.white, size: 13),
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // ── Language ──────────────────────────────────────────
-          _sectionLabel(p.languageLabel, p),
-          _settingCard([
-            _settingRow(
-              icon: Icons.language_outlined,
-              iconBg: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
-              iconColor: AppTheme.primaryFor(p.themeId),
-              title: p.languageLabel,
-              subtitle: p.isAr ? 'العربية' : 'English',
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _langBtn('ع', 'ar', p),
-                  const SizedBox(width: 6),
-                  _langBtn('EN', 'en', p),
-                ],
-              ),
-            ),
-          ], p),
-
-          // ── Account ───────────────────────────────────────────
-          _sectionLabel(p.account, p),
-          _settingCard([
-            ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 4,
-              ),
-              leading: Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(
-                  Icons.lock_outline,
-                  color: AppTheme.primaryFor(p.themeId),
-                  size: 15,
-                ),
-              ),
-              title: Text(
-                p.changePwd,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              subtitle: Text(
-                'اضغط لتغيير كلمة المرور',
-                style: TextStyle(fontSize: 10, color: AppTheme.textSec),
-              ),
-              trailing: Icon(
-                _showPwdForm ? Icons.expand_less : Icons.expand_more,
-                size: 18,
-              ),
-              onTap: () => setState(() => _showPwdForm = !_showPwdForm),
-            ),
-          ], p),
-          if (_showPwdForm) _pwdForm(p),
-
-          // ── Contact Us ────────────────────────────────────────
-          _sectionLabel(p.isAr ? 'تواصل معنا' : 'Contact Us', p),
-          _settingCard([
-            ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 6,
-              ),
-              leading: Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  gradient: AppTheme.gradientFor(p.themeId),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: const Icon(
-                  Icons.mail_outline_rounded,
-                  color: Colors.white,
-                  size: 16,
-                ),
-              ),
-              title: Text(
-                p.isAr ? 'البريد الإلكتروني للتواصل' : 'Contact Support Email',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(
-                AppUrls.supportEmail,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: AppTheme.primaryFor(p.themeId),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              trailing: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  gradient: AppTheme.gradientFor(p.themeId),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  p.isAr ? 'مراسلة' : 'Email',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    fontFamily: 'Cairo',
-                  ),
-                ),
-              ),
-              onTap: _openEmail,
-            ),
-          ], p),
-
-          // ── About ─────────────────────────────────────────────
-          _sectionLabel(p.about, p),
-          _settingCard([
-            _settingRow(
-              icon: Icons.info_outline,
-              iconBg: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
-              iconColor: AppTheme.primaryFor(p.themeId),
-              title: p.version,
-              subtitle: 'منصة تَم التعليمية',
-              trailing: const SizedBox(),
-            ),
-          ], p),
-
-          const SizedBox(height: 12),
-
-          // ── Legal (Privacy Policy & Terms) ────────────────────
-          _sectionLabel(p.isAr ? 'القانوني' : 'Legal', p),
-          _settingCard([
-            ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-              leading: Container(
-                width: 30, height: 30,
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(Icons.privacy_tip_outlined, color: AppTheme.primaryFor(p.themeId), size: 15),
-              ),
-              title: Text(p.isAr ? 'سياسة الخصوصية' : 'Privacy Policy',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
-              trailing: const Icon(Icons.open_in_new_rounded, size: 16),
-              onTap: () => _openUrl(AppUrls.privacyPolicy),
-            ),
-            ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-              leading: Container(
-                width: 30, height: 30,
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(Icons.gavel_rounded, color: AppTheme.primaryFor(p.themeId), size: 15),
-              ),
-              title: Text(p.isAr ? 'شروط الاستخدام' : 'Terms of Use',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
-              trailing: const Icon(Icons.open_in_new_rounded, size: 16),
-              onTap: () => _openUrl(AppUrls.termsOfUse),
-            ),
-            ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-              leading: Container(
-                width: 30, height: 30,
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(Icons.restore_rounded, color: AppTheme.primaryFor(p.themeId), size: 15),
-              ),
-              title: Text(p.isAr ? 'استعادة المشتريات السابقة' : 'Restore Purchases',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
-              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 13),
-              onTap: () async {
-                final isAr = p.isAr;
-                _snack(isAr
-                    ? 'جاري التحقق من المشتريات السابقة واستعادتها...'
-                    : 'Checking and restoring previous purchases...');
-                try {
-                  await InAppPurchase.instance.restorePurchases();
-                } catch (_) {
-                  _snack(isAr
-                      ? 'تعذر استعادة المشتريات حالياً'
-                      : 'Could not restore purchases');
-                }
-              },
-            ),
-          ], p),
-
-          const SizedBox(height: 12),
-
-          // ── Logout ────────────────────────────────────────────
-          ElevatedButton.icon(
-            icon: const Icon(Icons.logout, size: 18),
-            label: Text(p.logout),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.withValues(alpha: 0.1),
-              foregroundColor: Colors.red,
-              elevation: 0,
-              side: BorderSide(color: Colors.red.withValues(alpha: 0.2)),
-              padding: const EdgeInsets.all(14),
-            ),
-            onPressed: () async {
-              // Show confirmation dialog before logging out
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  title: Row(
-                    children: [
-                      const Icon(Icons.logout, color: Colors.red, size: 20),
-                      const SizedBox(width: 8),
-                      Text(p.logoutConfirmTitle,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, fontFamily: 'Cairo')),
-                    ],
-                  ),
-                  content: Text(
-                    p.logoutConfirmMsg,
-                    style: const TextStyle(fontSize: 13, fontFamily: 'Cairo'),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: Text(p.cancel, style: TextStyle(fontFamily: 'Cairo', color: AppTheme.textSec)),
                     ),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Cairo',
+                            ),
+                          ),
+                          Text(
+                            _email,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.2)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.school_outlined,
+                                  color: Colors.white,
+                                  size: 13,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  p.isAr
+                                      ? 'الصف $_grade • ${_subscribed ? p.subscribed : "غير مشترك"}'
+                                      : 'Grade $_grade • ${_subscribed ? p.subscribed : "Not Subscribed"}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: Text(p.logout, style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w800)),
                     ),
                   ],
                 ),
-              );
-              if (confirmed != true) return;
-              if (!context.mounted) return;
-              final appProvider = context.read<AppProvider>();
-              final auth = context.read<AuthService>();
-              final nav = Navigator.of(context);
-              await appProvider.clearUserData();
-              await auth.logout();
-              nav.pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const LoginScreen()),
-                (_) => false,
-              );
-
-            },
-          ),
-
-          const SizedBox(height: 12),
-
-          // ── Delete Account (Apple App Store Guideline 5.1.1-v) ─
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              icon: const Icon(Icons.delete_forever_rounded, size: 18, color: Colors.red),
-              label: Text(
-                p.isAr ? 'حذف الحساب نهائياً' : 'Delete Account',
-                style: const TextStyle(color: Colors.red, fontFamily: 'Cairo', fontWeight: FontWeight.w700),
               ),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: Colors.red.withValues(alpha: 0.35)),
+
+              const SizedBox(height: 20),
+
+              // ── Appearance ────────────────────────────────────────
+              _sectionLabel(p.appearance, p),
+              _settingCard([
+                _settingRow(
+                  icon: Icons.dark_mode_outlined,
+                  iconBg: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
+                  iconColor: AppTheme.primaryFor(p.themeId),
+                  title: p.darkMode,
+                  subtitle: p.isDark
+                      ? (p.isAr ? 'مفعّل' : 'Enabled')
+                      : (p.isAr ? 'غير مفعّل' : 'Disabled'),
+                  trailing: Switch(
+                    value: p.isDark,
+                    onChanged: (_) => p.toggleDark(),
+                    activeThumbColor: Colors.white,
+                    activeTrackColor: AppTheme.primaryFor(p.themeId).withValues(alpha: 0.5),
+                    thumbColor: WidgetStateProperty.resolveWith(
+                      (s) => s.contains(WidgetState.selected) ? Colors.white : null,
+                    ),
+                  ),
+                ),
+              ], p),
+
+              // ── Theme Picker ───────────────────────────────────────
+              _sectionLabel(p.isAr ? 'الثيم' : 'Theme', p),
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.30 : 0.15)),
+                ),
                 padding: const EdgeInsets.all(14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      p.isAr ? 'اختر ثيمك المفضل' : 'Choose your theme',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.primaryFor(p.themeId),
+                        fontWeight: FontWeight.w700,
+                        fontFamily: 'Cairo',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 90,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: AppTheme.allThemes.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 10),
+                        itemBuilder: (context, i) {
+                          final t = AppTheme.allThemes[i];
+                          final selected = p.themeId == t.id;
+                          return GestureDetector(
+                            onTap: () => p.setTheme(t.id),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeOutCubic,
+                              width: 74,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                gradient: LinearGradient(
+                                  colors: t.gradColors,
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                border: Border.all(
+                                  color:
+                                      selected ? Colors.white : Colors.transparent,
+                                  width: 2.5,
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(t.emoji,
+                                      style: const TextStyle(fontSize: 26)),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    p.isAr ? t.nameAr : t.nameEn,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  if (selected)
+                                    const Padding(
+                                      padding: EdgeInsets.only(top: 3),
+                                      child: Icon(Icons.check_circle,
+                                          color: Colors.white, size: 13),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              onPressed: () => _showDeleteAccountDialog(p),
-            ),
-          ),
 
-          const SizedBox(height: 120),
-        ],
+              // ── Language ──────────────────────────────────────────
+              _sectionLabel(p.languageLabel, p),
+              _settingCard([
+                _settingRow(
+                  icon: Icons.language_outlined,
+                  iconBg: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
+                  iconColor: AppTheme.primaryFor(p.themeId),
+                  title: p.languageLabel,
+                  subtitle: p.isAr ? 'العربية' : 'English',
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _langBtn('ع', 'ar', p),
+                      const SizedBox(width: 6),
+                      _langBtn('EN', 'en', p),
+                    ],
+                  ),
+                ),
+              ], p),
+
+              // ── Account (Password Users Only) ─────────────────────
+              if (isPasswordUser) ...[
+                _sectionLabel(p.account, p),
+                _settingCard([
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 4,
+                    ),
+                    leading: Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: Icon(
+                        Icons.lock_outline,
+                        color: AppTheme.primaryFor(p.themeId),
+                        size: 15,
+                      ),
+                    ),
+                    title: Text(
+                      p.changePwd,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: Text(
+                      p.isAr ? 'اضغط لتغيير كلمة المرور' : 'Tap to change your password',
+                      style: const TextStyle(fontSize: 10, color: AppTheme.textSec),
+                    ),
+                    trailing: Icon(
+                      _showPwdForm ? Icons.expand_less : Icons.expand_more,
+                      size: 18,
+                    ),
+                    onTap: () => setState(() => _showPwdForm = !_showPwdForm),
+                  ),
+                ], p),
+                if (_showPwdForm) _pwdForm(p),
+              ],
+
+              // ── Contact Us ────────────────────────────────────────
+              _sectionLabel(p.isAr ? 'تواصل معنا' : 'Contact Us', p),
+              _settingCard([
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
+                  leading: Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.gradientFor(p.themeId),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: const Icon(
+                      Icons.mail_outline_rounded,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                  title: Text(
+                    p.isAr ? 'البريد الإلكتروني للتواصل' : 'Contact Support Email',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    AppUrls.supportEmail,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppTheme.primaryFor(p.themeId),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.gradientFor(p.themeId),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      p.isAr ? 'مراسلة' : 'Email',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        fontFamily: 'Cairo',
+                      ),
+                    ),
+                  ),
+                  onTap: _openEmail,
+                ),
+              ], p),
+
+              // ── About ─────────────────────────────────────────────
+              _sectionLabel(p.about, p),
+              _settingCard([
+                _settingRow(
+                  icon: Icons.info_outline,
+                  iconBg: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
+                  iconColor: AppTheme.primaryFor(p.themeId),
+                  title: p.version,
+                  subtitle: p.isAr ? 'منصة تَم التعليمية' : 'TAM Educational Platform',
+                  trailing: const SizedBox(),
+                ),
+              ], p),
+
+              const SizedBox(height: 12),
+
+              // ── Legal (Privacy Policy & Terms) ────────────────────
+              _sectionLabel(p.isAr ? 'القانوني' : 'Legal', p),
+              _settingCard([
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  leading: Container(
+                    width: 30, height: 30,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Icon(Icons.privacy_tip_outlined, color: AppTheme.primaryFor(p.themeId), size: 15),
+                  ),
+                  title: Text(p.isAr ? 'سياسة الخصوصية' : 'Privacy Policy',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
+                  trailing: const Icon(Icons.open_in_new_rounded, size: 16),
+                  onTap: () => _openUrl(AppUrls.privacyPolicy),
+                ),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  leading: Container(
+                    width: 30, height: 30,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Icon(Icons.gavel_rounded, color: AppTheme.primaryFor(p.themeId), size: 15),
+                  ),
+                  title: Text(p.isAr ? 'شروط الاستخدام' : 'Terms of Use',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
+                  trailing: const Icon(Icons.open_in_new_rounded, size: 16),
+                  onTap: () => _openUrl(AppUrls.termsOfUse),
+                ),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  leading: Container(
+                    width: 30, height: 30,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryFor(p.themeId).withValues(alpha: p.isDark ? 0.25 : 0.12),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Icon(Icons.restore_rounded, color: AppTheme.primaryFor(p.themeId), size: 15),
+                  ),
+                  title: Text(p.isAr ? 'استعادة المشتريات السابقة' : 'Restore Purchases',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
+                  trailing: _restoring
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.arrow_forward_ios_rounded, size: 13),
+                  onTap: _restoring ? null : () => _restorePurchasesFromSettings(p),
+                ),
+              ], p),
+
+              const SizedBox(height: 12),
+
+              // ── Logout ────────────────────────────────────────────
+              ElevatedButton.icon(
+                icon: const Icon(Icons.logout, size: 18),
+                label: Text(p.logout),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red.withValues(alpha: 0.1),
+                  foregroundColor: Colors.red,
+                  elevation: 0,
+                  side: BorderSide(color: Colors.red.withValues(alpha: 0.2)),
+                  padding: const EdgeInsets.all(14),
+                ),
+                onPressed: () async {
+                  // Show confirmation dialog before logging out
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      title: Row(
+                        children: [
+                          const Icon(Icons.logout, color: Colors.red, size: 20),
+                          const SizedBox(width: 8),
+                          Text(p.logoutConfirmTitle,
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, fontFamily: 'Cairo')),
+                        ],
+                      ),
+                      content: Text(
+                        p.logoutConfirmMsg,
+                        style: const TextStyle(fontSize: 13, fontFamily: 'Cairo'),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: Text(p.cancel, style: const TextStyle(fontFamily: 'Cairo', color: AppTheme.textSec)),
+                        ),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: Text(p.logout, style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w800)),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed != true) return;
+                  if (!context.mounted) return;
+                  final appProvider = context.read<AppProvider>();
+                  final auth = context.read<AuthService>();
+                  final nav = Navigator.of(context);
+                  await appProvider.clearUserData();
+                  await auth.logout();
+                  nav.pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    (_) => false,
+                  );
+
+                },
+              ),
+
+              const SizedBox(height: 12),
+
+              // ── Delete Account (Apple App Store Guideline 5.1.1-v) ─
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.delete_forever_rounded, size: 18, color: Colors.red),
+                  label: Text(
+                    p.isAr ? 'حذف الحساب نهائياً' : 'Delete Account',
+                    style: const TextStyle(color: Colors.red, fontFamily: 'Cairo', fontWeight: FontWeight.w700),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.red.withValues(alpha: 0.35)),
+                    padding: const EdgeInsets.all(14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: () => _showDeleteAccountDialog(p),
+                ),
+              ),
+
+              const SizedBox(height: 120),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1001,24 +1122,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
               controller: _opCtrl,
               obscureText: true,
               textDirection: TextDirection.ltr,
-              decoration:
-                  const InputDecoration(hintText: 'كلمة المرور الحالية'),
+              decoration: InputDecoration(
+                hintText: p.isAr ? 'كلمة المرور الحالية' : 'Current password',
+              ),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _npCtrl,
               obscureText: true,
               textDirection: TextDirection.ltr,
-              decoration:
-                  const InputDecoration(hintText: 'كلمة المرور الجديدة'),
+              decoration: InputDecoration(
+                hintText: p.isAr ? 'كلمة المرور الجديدة' : 'New password',
+              ),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _cpCtrl,
               obscureText: true,
               textDirection: TextDirection.ltr,
-              decoration: const InputDecoration(
-                hintText: 'تأكيد كلمة المرور الجديدة',
+              decoration: InputDecoration(
+                hintText: p.isAr
+                    ? 'تأكيد كلمة المرور الجديدة'
+                    : 'Confirm new password',
               ),
             ),
             const SizedBox(height: 12),

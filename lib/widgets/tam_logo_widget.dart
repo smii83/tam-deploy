@@ -19,7 +19,9 @@ class TamLogoWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.watch<AppProvider>().isDark;
+    final p = context.watch<AppProvider>();
+    final isDark = p.isDark;
+    final isAr = p.isAr;
     final logoAsset = isDark
         ? 'assets/images/logo_dark.png'
         : 'assets/images/logo_light.png';
@@ -36,7 +38,7 @@ class TamLogoWidget extends StatelessWidget {
         if (showTagline) ...[
           const SizedBox(height: 6),
           Text(
-            'منصة تـم التعليمية',
+            isAr ? 'منصة تـم التعليمية' : 'TAM Educational Platform',
             style: TextStyle(
               fontFamily: 'Cairo',
               fontSize: 13,

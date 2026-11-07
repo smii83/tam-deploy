@@ -15,8 +15,11 @@ import '../utils/tts_audio.dart';
 /// 5. Full support for Arabic dialects, image solving, grading, quizzes, and summaries
 /// ─────────────────────────────────────────────────────────────────────────────
 class AIService {
-  static final String _defaultApiKey =
-      utf8.decode(base64Decode('QVEuQWI4Uk42Sjc4NWRnYjVKZHFhQ1Y1bjZvSl9RVGxrbFg4UG9LUTd5OHYtQ2xDRGh5LXc='));
+  static const String _envApiKey = String.fromEnvironment('GEMINI_API_KEY');
+  static final String _defaultApiKey = _envApiKey.isNotEmpty
+      ? _envApiKey
+      : utf8.decode(base64Decode(
+          'QVEuQWI4Uk42Sjc4NWRnYjVKZHFhQ1Y1bjZvSl9RVGxrbFg4UG9LUTd5OHYtQ2xDRGh5LXc='));
   static const String _defaultModel = 'gemini-2.5-flash';
 
   static String _apiKey = _defaultApiKey;
@@ -654,6 +657,7 @@ class AIService {
   // ── Fallback Quiz ────────────────────────────────────────────────────────
   static List<Map<String, dynamic>> _fallbackQuiz(String subject) => [
         {
+          'isFallbackError': true,
           'question':
               'عذراً، حدث ضغط مؤقت في إنشاء الأسئلة، اضغط على إعادة المحاولة.',
           'options': ['إعادة المحاولة', 'المحاولة لاحقاً', 'شكراً', 'موافق'],

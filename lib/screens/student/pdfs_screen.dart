@@ -470,14 +470,40 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   Future<void> _downloadAndOpen() async {
-    try { final cached = _pdfCache[widget.url]; if (cached != null && await File(cached).exists()) { if (mounted) setState(() { _localPath = cached; _loading = false; }); return; }
-      final response = await http.get(Uri.parse(widget.url));
+    final isAr = context.read<AppProvider>().isAr;
+    try {
+      final cached = _pdfCache[widget.url];
+      if (cached != null && await File(cached).exists()) {
+        if (mounted) {
+          setState(() {
+            _localPath = cached;
+            _loading = false;
+          });
+        }
+        return;
+      }
+      final response = await http
+          .get(Uri.parse(widget.url))
+          .timeout(const Duration(seconds: 30));
       if (response.statusCode == 200) {
+        if (response.bodyBytes.isEmpty) {
+          if (mounted) {
+            setState(() {
+              _error = isAr ? 'الملف فارغ' : 'File is empty';
+              _loading = false;
+            });
+          }
+          return;
+        }
         final dir = await getTemporaryDirectory();
         final fileName =
             'tam_pdf_${DateTime.now().millisecondsSinceEpoch}.pdf';
         final file = File('${dir.path}/$fileName');
-        await file.writeAsBytes(response.bodyBytes); _pdfCache[widget.url] = file.path;
+        await file.writeAsBytes(response.bodyBytes);
+        if (_pdfCache.length >= 5 && !_pdfCache.containsKey(widget.url)) {
+          _pdfCache.remove(_pdfCache.keys.first);
+        }
+        _pdfCache[widget.url] = file.path;
         if (mounted) {
           setState(() {
             _localPath = file.path;
@@ -487,7 +513,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       } else {
         if (mounted) {
           setState(() {
-            _error = 'تعذّر تحميل الملف';
+            _error = isAr
+                ? 'تعذّر تحميل الملف (HTTP ${response.statusCode})'
+                : 'Could not load file (HTTP ${response.statusCode})';
             _loading = false;
           });
         }
@@ -495,7 +523,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     } catch (_) {
       if (mounted) {
         setState(() {
-          _error = 'تعذّر تحميل الملف، تحقق من الاتصال';
+          _error = isAr
+              ? 'فشل تحميل الملف. تأكد من اتصالك بالإنترنت.'
+              : 'Failed to load file. Check your internet connection.';
           _loading = false;
         });
       }
@@ -504,6 +534,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isAr = context.watch<AppProvider>().isAr;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -522,7 +553,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         actions: [
           if (_totalPages > 0)
             Padding(
-              padding: const EdgeInsets.only(left: 16),
+              padding: const EdgeInsetsDirectional.only(end: 16),
               child: Center(
                 child: Text(
                   '${_currentPage + 1} / $_totalPages',
@@ -533,12 +564,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             ),
         ],
       ),
-      body: _buildBody(),
+      body: _buildBody(isAr),
     );
   }
 
-  Widget _buildBody() {
-    if (kIsWeb) return _webPlaceholder();
+  Widget _buildBody(bool isAr) {
+    if (kIsWeb) return _webPlaceholder(isAr);
     if (_loading) {
       return Center(
         child: Column(
@@ -546,8 +577,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           children: [
             CircularProgressIndicator(color: widget.color),
             const SizedBox(height: 12),
-            const Text('جاري تحميل الملخص...',
-                style: TextStyle(color: Colors.white70, fontSize: 13)),
+            Text(
+                isAr ? 'جاري تحميل الملخص...' : 'Loading summary...',
+                style: const TextStyle(color: Colors.white70, fontSize: 13)),
           ],
         ),
       );
@@ -565,8 +597,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   style: const TextStyle(
                       color: Colors.white, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
-              const Text('تحقق من الاتصال بالإنترنت',
-                  style: TextStyle(color: Colors.white54, fontSize: 12)),
+              Text(
+                  isAr
+                      ? 'تحقق من الاتصال بالإنترنت'
+                      : 'Check your internet connection',
+                  style: const TextStyle(color: Colors.white54, fontSize: 12)),
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: () {
@@ -576,7 +611,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   });
                   _downloadAndOpen();
                 },
-                child: const Text('إعادة المحاولة'),
+                child: Text(isAr ? 'إعادة المحاولة' : 'Retry'),
               ),
             ],
           ),
@@ -597,12 +632,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         _currentPage = page ?? 0;
         _totalPages = total ?? 0;
       }),
-      onError: (err) => setState(() => _error = 'خطأ في عرض الملف'),
+      onError: (err) => setState(
+          () => _error = isAr ? 'خطأ في عرض الملف' : 'Error displaying file'),
       onPageError: (page, err) {},
     );
   }
 
-  Widget _webPlaceholder() => Center(
+  Widget _webPlaceholder(bool isAr) => Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(
@@ -618,15 +654,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     child: Text('📚', style: TextStyle(fontSize: 40))),
               ),
               const SizedBox(height: 20),
-              const Text('المحتوى محمي',
-                  style: TextStyle(
+              Text(isAr ? 'المحتوى محمي' : 'Protected Content',
+                  style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.w900)),
               const SizedBox(height: 8),
-              const Text(
-                'الملخصات متاحة للقراءة عبر التطبيق فقط\nلا يمكن تحميل أو مشاركة هذا المحتوى',
-                style: TextStyle(color: Colors.white70, fontSize: 13),
+              Text(
+                isAr
+                    ? 'الملخصات متاحة للقراءة عبر التطبيق فقط\nلا يمكن تحميل أو مشاركة هذا المحتوى'
+                    : 'Summaries are available for reading in the app only.\nDownloading or sharing this content is not allowed.',
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 12),
@@ -638,14 +676,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   border: Border.all(
                       color: Colors.orange.withValues(alpha: 0.3)),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.smartphone, color: Colors.orange, size: 16),
-                    SizedBox(width: 8),
-                    Text('حمّل التطبيق للوصول للمحتوى',
+                    const Icon(Icons.smartphone, color: Colors.orange, size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                        isAr
+                            ? 'حمّل التطبيق للوصول للمحتوى'
+                            : 'Download the app to access content',
                         style:
-                            TextStyle(color: Colors.orange, fontSize: 12)),
+                            const TextStyle(color: Colors.orange, fontSize: 12)),
                   ],
                 ),
               ),

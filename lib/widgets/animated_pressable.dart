@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class AnimatedPressable extends StatefulWidget {
@@ -103,7 +103,9 @@ class _AnimatedPressableState extends State<AnimatedPressable>
         button: widget.isButton,
         enabled: widget.onTap != null,
         onTap: widget.onTap,
-        child: ExcludeSemantics(child: gesture),
+        child: widget.semanticLabel != null
+            ? ExcludeSemantics(child: gesture)
+            : gesture,
       );
     }
 

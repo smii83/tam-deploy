@@ -23,16 +23,11 @@ let generatedPdfBlob = null;
 
 // Admin whitelist
 const ADMIN_EMAILS = [
-  'admin@tam.com',
-  'tamteach01@gmail.com',
   'tam.app83@gmail.com',
   'tm.app83@gmail.com',
-  'admin@eduspark.com'
+  'tamteach01@gmail.com',
+  'admin@tam.com'
 ];
-
-// Master studio credentials
-const MASTER_USER = 'admin@tam.com';
-const MASTER_PASS = 'Tam@2026';
 
 // Initialize on Load
 document.addEventListener('DOMContentLoaded', async () => {
@@ -61,16 +56,13 @@ function setupAuthListeners() {
 }
 
 function checkAuthSession() {
-  const localSession = sessionStorage.getItem('tam_studio_admin');
-  if (localSession) {
-    grantAccess(localSession);
-    return;
-  }
-
-  auth.onAuthStateChanged((user) => {
+  auth.onAuthStateChanged(async (user) => {
     if (user && isAuthorizedAdmin(user.email)) {
       grantAccess(user.email);
     } else {
+      if (user) {
+        try { await auth.signOut(); } catch (_) {}
+      }
       showLoginScreen();
     }
   });
@@ -88,7 +80,6 @@ function showLoginScreen() {
 }
 
 function grantAccess(username) {
-  sessionStorage.setItem('tam_studio_admin', username);
   document.getElementById('loginOverlay').classList.add('hidden');
   document.getElementById('sessionUserName').textContent = username.split('@')[0];
   document.getElementById('userSessionBadge').classList.remove('hidden');
@@ -96,7 +87,7 @@ function grantAccess(username) {
 }
 
 async function handleStudioLogin() {
-  const email = document.getElementById('authEmail').value.trim();
+  const user = document.getElementById('authEmail').value.trim();
   const pass = document.getElementById('authPassword').value;
   const errEl = document.getElementById('loginErrorMsg');
   const btn = document.getElementById('btnLogin');
@@ -104,8 +95,8 @@ async function handleStudioLogin() {
 
   errEl.classList.add('hidden');
 
-  if (!email || !pass) {
-    errEl.textContent = 'يرجى إدخال اسم المستخدم وكلمة المرور';
+  if (!user || !pass) {
+    errEl.textContent = 'يرجى إدخال البريد الإلكتروني وكلمة المرور';
     errEl.classList.remove('hidden');
     return;
   }
@@ -113,29 +104,17 @@ async function handleStudioLogin() {
   btn.disabled = true;
   btnText.textContent = 'جاري التحقق...';
 
-  // 1. Check Master Studio Credentials
-  if (
-    (email.toLowerCase() === MASTER_USER.toLowerCase() || email.toLowerCase() === 'tam_admin') &&
-    pass === MASTER_PASS
-  ) {
-    btn.disabled = false;
-    btnText.textContent = 'تسجيل الدخول';
-    grantAccess(email);
-    toast('✅ تم تسجيل الدخول بنجاح كـ مشرف', 'success');
-    return;
-  }
-
-  // 2. Check Firebase Authentication
   try {
-    const cred = await auth.signInWithEmailAndPassword(email, pass);
-    if (!isAuthorizedAdmin(email)) {
+    const cred = await auth.signInWithEmailAndPassword(user, pass);
+    const signedInEmail = (cred.user && cred.user.email) ? cred.user.email : user;
+    if (!isAuthorizedAdmin(signedInEmail)) {
       await auth.signOut();
       throw new Error('هذا الحساب ليس مشرفاً معتمداً في منصة تَم');
     }
-    grantAccess(email);
+    grantAccess(signedInEmail);
     toast('✅ تم تسجيل الدخول بنجاح', 'success');
   } catch (err) {
-    let msg = 'اسم المستخدم أو كلمة المرور غير صحيحة';
+    let msg = 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
     if (err.code === 'auth/user-not-found') msg = 'البريد الإلكتروني غير مسجل';
     if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') msg = 'كلمة المرور غير صحيحة';
     if (err.message && err.message.includes('مشرفاً')) msg = err.message;
@@ -149,7 +128,6 @@ async function handleStudioLogin() {
 }
 
 function handleStudioLogout() {
-  sessionStorage.removeItem('tam_studio_admin');
   auth.signOut().catch(() => {});
   showLoginScreen();
   toast('تم تسجيل الخروج بنجاح', 'info');
@@ -179,7 +157,7 @@ async function loadGrades() {
     snap.docs.forEach(doc => {
       const g = doc.data();
       const name = g.name_ar || `الصف ${g.grade_number}`;
-      options += `<option value="${doc.id}" data-number="${g.grade_number}">${name}</option>`;
+      options += `<option value="${escapeHtml(doc.id)}" data-number="${escapeHtml(g.grade_number)}">${escapeHtml(name)}</option>`;
     });
 
     gradeSel.innerHTML = options;
@@ -220,13 +198,13 @@ async function onGradeSelected() {
         const snap2 = await db.collection('subjects').where('grade', '==', gNum).get();
         snap2.docs.forEach(d => {
           const s = d.data();
-          options += `<option value="${d.id}">${s.name_ar || s.name || 'مادة'}</option>`;
+          options += `<option value="${escapeHtml(d.id)}">${escapeHtml(s.name_ar || s.name || 'مادة')}</option>`;
         });
       }
     } else {
       snap.docs.forEach(d => {
         const s = d.data();
-        options += `<option value="${d.id}">${s.name_ar || s.name || 'مادة'}</option>`;
+        options += `<option value="${escapeHtml(d.id)}">${escapeHtml(s.name_ar || s.name || 'مادة')}</option>`;
       });
     }
 
@@ -580,7 +558,7 @@ function renderResults(data) {
           }
 
           return `
-            <div class="doc-section-card ${s.type || 'concept'}">
+            <div class="doc-section-card ${escapeHtml(s.type || 'concept')}">
               <span class="doc-card-badge">${escapeHtml(s.badge || 'تَم')}</span>
               <h3 class="doc-card-title">${escapeHtml(s.title || '')}</h3>
               <p class="doc-card-content">${escapeHtml(s.content || '')}</p>
@@ -620,15 +598,18 @@ function renderResults(data) {
   }
 }
 
-function switchResultTab(tabId) {
+function switchResultTab(tabId, btnEl) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
 
+  const activeBtn = btnEl || (typeof event !== 'undefined' && (event?.currentTarget || event?.target));
+  if (activeBtn && activeBtn.classList) {
+    activeBtn.classList.add('active');
+  }
+
   if (tabId === 'pdfView') {
-    event.target.classList.add('active');
     document.getElementById('pdfViewContent').classList.add('active');
   } else {
-    event.target.classList.add('active');
     document.getElementById('whiteboardViewContent').classList.add('active');
   }
 }

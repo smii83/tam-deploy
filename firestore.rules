@@ -58,8 +58,12 @@ service cloud.firestore {
     // ── Subscriptions ─────────────────────────────────────────────────────
     // Users can READ their own subscriptions and CREATE one for themselves
     // right after a successful store purchase (validated shape, id = store
-    // transaction id, so it can't be overwritten). They can never update or
-    // delete. Admins (dashboard) and Cloud Functions (Admin SDK) manage the rest.
+    // transaction id, so it can't be overwritten). They can never update, but
+    // may delete their own record (in-app account deletion, App Store 5.1.1(v)).
+    // Admins (dashboard) and Cloud Functions (Admin SDK) manage the rest.
+    // TODO: remove the client-side create rule below once APPLE_SHARED_SECRET is
+    // configured and the validated ctivateSubscription Cloud Function is
+    // deployed (then only the function should write subscription records).
     match /subscriptions/{subId} {
       allow read:   if (isAuth() && resource.data.firebase_uid == request.auth.uid) || isAdmin();
       allow create: if isAdmin() || (
@@ -75,7 +79,8 @@ service cloud.firestore {
                            'transaction_id', 'status', 'duration_days', 'start_date',
                            'end_date', 'created'])
                     );
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin() || (isAuth() && resource.data.firebase_uid == request.auth.uid);
     }
 
     // ── Grades ────────────────────────────────────────────────────────────
@@ -134,10 +139,10 @@ service cloud.firestore {
     }
 
     // ── Global Config (AI settings, etc.) ─────────────────────────────────
-    // config/ai holds the Gemini API key: ADMIN ONLY. Other config docs are
-    // readable by signed-in users.
+    // Readable by signed-in users so the app can dynamically fetch the active
+    // Gemini model/key configured in the Admin Dashboard without an app update.
     match /config/{configId} {
-      allow read:  if (isAuth() && configId != 'ai') || isAdmin();
+      allow read:  if isAuth();
       allow write: if isAdmin();
     }
 

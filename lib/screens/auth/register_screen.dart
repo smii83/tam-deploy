@@ -85,9 +85,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
-    if (_nameCtrl.text.trim().isEmpty) { setState(() => _error = 'يرجى إدخال اسمك الكامل'); return; }
-    if (_passCtrl.text != _confCtrl.text) { setState(() => _error = 'كلمتا المرور غير متطابقتين'); return; }
-    if (_passCtrl.text.length < 6) { setState(() => _error = 'كلمة المرور قصيرة'); return; }
+    final p = context.read<AppProvider>();
+    if (_nameCtrl.text.trim().isEmpty) {
+      setState(() => _error = p.isAr ? 'يرجى إدخال اسمك الكامل' : 'Please enter your full name');
+      return;
+    }
+    if (_passCtrl.text != _confCtrl.text) {
+      setState(() => _error = p.isAr ? 'كلمتا المرور غير متطابقتين' : 'Passwords do not match');
+      return;
+    }
+    if (_passCtrl.text.length < 6) {
+      setState(() => _error = p.isAr ? 'كلمة المرور قصيرة (على الأقل 6 أحرف)' : 'Password is too short (at least 6 characters)');
+      return;
+    }
     setState(() { _loading = true; _error = null; });
     final err = await context.read<AuthService>().register(
       name: _nameCtrl.text.trim(),
@@ -182,7 +192,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
           SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 // Top row: back + lang toggle
                 Row(
                   children: [
@@ -479,6 +492,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 24),
               ]),
+                ),
+              ),
             ),
           ),
         ],
@@ -573,14 +588,38 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (_gradesList.isEmpty) {
       List<DropdownMenuItem<String>> items = [];
       for (int g = 6; g <= 9; g++) {
-        items.add(DropdownMenuItem(value: '$g', child: Text('الصف $g', style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
+        items.add(DropdownMenuItem(
+            value: '$g',
+            child: Text(p.isAr ? 'الصف $g' : 'Grade $g',
+                style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
       }
-      items.add(DropdownMenuItem(value: '10', child: Text('الصف العاشر (عام)', style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
-      items.add(DropdownMenuItem(value: '10_tracks', child: Text('الصف العاشر — نظام المسارات (2026)', style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
-      items.add(DropdownMenuItem(value: '11_scientific', child: Text('الصف 11 علمي', style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
-      items.add(DropdownMenuItem(value: '11_literary', child: Text('الصف 11 أدبي', style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
-      items.add(DropdownMenuItem(value: '12_scientific', child: Text('الصف 12 علمي', style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
-      items.add(DropdownMenuItem(value: '12_literary', child: Text('الصف 12 أدبي', style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
+      items.add(DropdownMenuItem(
+          value: '10',
+          child: Text(p.isAr ? 'الصف العاشر (عام)' : 'Grade 10 (General)',
+              style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
+      items.add(DropdownMenuItem(
+          value: '10_tracks',
+          child: Text(
+              p.isAr
+                  ? 'الصف العاشر — نظام المسارات (2026)'
+                  : 'Grade 10 — Tracks (2026)',
+              style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
+      items.add(DropdownMenuItem(
+          value: '11_scientific',
+          child: Text(p.isAr ? 'الصف 11 علمي' : 'Grade 11 (Science)',
+              style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
+      items.add(DropdownMenuItem(
+          value: '11_literary',
+          child: Text(p.isAr ? 'الصف 11 أدبي' : 'Grade 11 (Literary)',
+              style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
+      items.add(DropdownMenuItem(
+          value: '12_scientific',
+          child: Text(p.isAr ? 'الصف 12 علمي' : 'Grade 12 (Science)',
+              style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
+      items.add(DropdownMenuItem(
+          value: '12_literary',
+          child: Text(p.isAr ? 'الصف 12 أدبي' : 'Grade 12 (Literary)',
+              style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
       return items;
     }
 

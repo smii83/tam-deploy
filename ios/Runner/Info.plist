@@ -25,7 +25,7 @@
     <string>نستخدم التعرف على الصوت لتحويل سؤالك للأستاذ الذكي أثناء الدرس إلى نص. لا يتم حفظ تسجيلاتك.</string>
 
     <key>NSMicrophoneUsageDescription</key>
-    <string>نستخدم الميكروفون عند تصوير الفيديو، وعند طرح سؤال صوتي على الأستاذ الذكي أثناء الدرس</string>
+    <string>نستخدم الميكروفون لطرح الأسئلة الصوتية مباشرة على الأستاذ الذكي أثناء الدرس التفاعلي</string>
 
     <!-- ── App Store Export Compliance ───────────────────────────────── -->
     <!-- Set to false: the app uses Apple's built-in encryption (HTTPS/TLS) only -->
@@ -67,13 +67,6 @@
                 <string>com.googleusercontent.apps.82581349835-a7th6c7anb8tboo4i65jt6femfldr1df</string>
             </array>
         </dict>
-    </array>
-
-    <!-- ── Background Modes (FCM Push Notifications) ─────────────── -->
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>fetch</string>
-        <string>remote-notification</string>
     </array>
 </dict>
 </plist>

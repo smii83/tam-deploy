@@ -139,7 +139,11 @@ class _SplashScreenState extends State<SplashScreen>
       if (!mounted) return;
       if (ap.userData != null && ap.userData!['is_blocked'] == true) {
         await context.read<AuthService>().logout();
-        _push(const LoginScreen(errorMsg: 'لقد تم حظر هذا الحساب من قبل الإدارة.'));
+        _push(LoginScreen(
+          errorMsg: ap.isAr
+              ? 'لقد تم حظر هذا الحساب من قبل الإدارة.'
+              : 'This account has been blocked by the administrator.',
+        ));
         return;
       }
       final ok = await FirestoreDataService.isSubscribed(firebaseUser.uid,
@@ -200,6 +204,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isAr = context.watch<AppProvider>().isAr;
     final size = MediaQuery.of(context).size;
     final primaryColor = AppTheme.primary; // Electric Violet (Brand Purple)
     final secondaryColor = AppTheme.accent; // Vivid Cyan (Brand Teal)
@@ -350,9 +355,9 @@ class _SplashScreenState extends State<SplashScreen>
                                   ],
                                 ).createShader(bounds);
                               },
-                              child: const Text(
-                                'تعلم بذكاء',
-                                style: TextStyle(
+                              child: Text(
+                                isAr ? 'تعلم بذكاء' : 'Learn Smart',
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 38,
                                   fontWeight: FontWeight.w900,
@@ -370,16 +375,16 @@ class _SplashScreenState extends State<SplashScreen>
                               text: TextSpan(
                                 style: const TextStyle(fontFamily: 'Cairo'),
                                 children: [
-                                  const TextSpan(
-                                    text: 'مع ',
-                                    style: TextStyle(
+                                  TextSpan(
+                                    text: isAr ? 'مع ' : 'with ',
+                                    style: const TextStyle(
                                       color: Color(0xFF8B9DB0),
                                       fontSize: 17,
                                       fontWeight: FontWeight.w400,
                                     ),
                                   ),
                                   TextSpan(
-                                    text: 'منصة تَم',
+                                    text: isAr ? 'منصة تَم' : 'TAM Educational Platform',
                                     style: TextStyle(
                                       color: primaryColor,
                                       fontSize: 17,
@@ -421,7 +426,9 @@ class _SplashScreenState extends State<SplashScreen>
                                 color: primaryColor.withValues(alpha: 0.05),
                               ),
                               child: Text(
-                                'المنصة التعليمية الذكية',
+                                isAr
+                                    ? 'المنصة التعليمية الذكية'
+                                    : 'Your smart companion for academic excellence ✨',
                                 style: TextStyle(
                                   color: primaryColor.withValues(alpha: 0.9),
                                   fontSize: 10,

@@ -30,13 +30,13 @@ class _GradeSelectScreenState extends State<GradeSelectScreen>
 
   // Emoji/color per grade_number
   static const Map<int, Map<String, dynamic>> _meta = {
-    6: {'em': '🌱', 'color': 0xFF6C63FF, 'stage': 'ابتدائي'},
-    7: {'em': '📘', 'color': 0xFF00B8A9, 'stage': 'متوسط'},
-    8: {'em': '🔭', 'color': 0xFF8B5CF6, 'stage': 'متوسط'},
-    9: {'em': '⚗️', 'color': 0xFF22C55E, 'stage': 'متوسط'},
-    10: {'em': '🚀', 'color': 0xFFF59E0B, 'stage': 'ثانوي'},
-    11: {'em': '🎯', 'color': 0xFFEF4444, 'stage': 'ثانوي'},
-    12: {'em': '🏆', 'color': 0xFFFFBB00, 'stage': 'ثانوي'},
+    6: {'em': '🌱', 'color': 0xFF6C63FF, 'stage': 'ابتدائي', 'stage_en': 'Primary'},
+    7: {'em': '📘', 'color': 0xFF00B8A9, 'stage': 'متوسط', 'stage_en': 'Middle'},
+    8: {'em': '🔭', 'color': 0xFF8B5CF6, 'stage': 'متوسط', 'stage_en': 'Middle'},
+    9: {'em': '⚗️', 'color': 0xFF22C55E, 'stage': 'متوسط', 'stage_en': 'Middle'},
+    10: {'em': '🚀', 'color': 0xFFF59E0B, 'stage': 'ثانوي', 'stage_en': 'Secondary'},
+    11: {'em': '🎯', 'color': 0xFFEF4444, 'stage': 'ثانوي', 'stage_en': 'Secondary'},
+    12: {'em': '🏆', 'color': 0xFFFFBB00, 'stage': 'ثانوي', 'stage_en': 'Secondary'},
   };
 
   String _selectedCountryCode = 'kw';
@@ -190,7 +190,7 @@ class _GradeSelectScreenState extends State<GradeSelectScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'اختر صفك الدراسي',
+                                p.isAr ? 'اختر صفك الدراسي' : 'Choose your grade',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 17,
@@ -200,10 +200,16 @@ class _GradeSelectScreenState extends State<GradeSelectScreen>
                               ),
                               Text(
                                 _selectedCountryCode == 'sa'
-                                    ? 'سنخصص لك المحتوى حسب المنهج السعودي'
+                                    ? (p.isAr
+                                        ? 'سنخصص لك المحتوى حسب المنهج السعودي'
+                                        : 'We will tailor the content to the Saudi curriculum')
                                     : _selectedCountryCode == 'ae'
-                                        ? 'سنخصص لك المحتوى حسب المنهج الإماراتي'
-                                        : 'سنخصص لك المحتوى حسب المنهج الكويتي',
+                                        ? (p.isAr
+                                            ? 'سنخصص لك المحتوى حسب المنهج الإماراتي'
+                                            : 'We will tailor the content to the UAE curriculum')
+                                        : (p.isAr
+                                            ? 'سنخصص لك المحتوى حسب المنهج الكويتي'
+                                            : 'We will tailor the content to the Kuwaiti curriculum'),
                                 style: TextStyle(
                                   color: Colors.white.withValues(alpha: 0.85),
                                   fontSize: 11,
@@ -219,6 +225,13 @@ class _GradeSelectScreenState extends State<GradeSelectScreen>
                 ),
               ),
 
+              // Constrain content width on tablets (header stays full-bleed)
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: Column(
+                      children: [
               // ── Country Selector Bar (If multiple countries active in Backend) ──
               if (_countries.length > 1) ...[
                 Container(
@@ -232,7 +245,7 @@ class _GradeSelectScreenState extends State<GradeSelectScreen>
                         final name = p.isAr ? (c['name_ar'] as String) : (c['name_en'] as String);
                         final active = _selectedCountryCode == code;
                         return Padding(
-                          padding: const EdgeInsets.only(left: 8),
+                          padding: const EdgeInsetsDirectional.only(start: 8),
                           child: GestureDetector(
                             onTap: () => _changeCountry(code),
                             child: AnimatedContainer(
@@ -293,7 +306,8 @@ class _GradeSelectScreenState extends State<GradeSelectScreen>
                               {
                                 'em': '📚',
                                 'color': 0xFF6C63FF,
-                                'stage': 'دراسي'
+                                'stage': 'دراسي',
+                                'stage_en': 'School'
                               };
                           final gradeColor = Color(m['color'] as int);
                           final sel = _selectedId ==
@@ -382,9 +396,10 @@ class _GradeSelectScreenState extends State<GradeSelectScreen>
                                           CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          g['name_ar'] ??
-                                              g['name_en'] ??
-                                              'صف $gradeNum',
+                                          (p.isAr
+                                                  ? (g['name_ar'] ?? g['name_en'])
+                                                  : (g['name_en'] ?? g['name_ar'])) ??
+                                              (p.isAr ? 'صف $gradeNum' : 'Grade $gradeNum'),
                                           style: TextStyle(
                                             fontSize: 13.5,
                                             fontWeight: FontWeight.w700,
@@ -408,7 +423,9 @@ class _GradeSelectScreenState extends State<GradeSelectScreen>
                                                 BorderRadius.circular(8),
                                           ),
                                           child: Text(
-                                            'المرحلة ال${m['stage']}',
+                                            p.isAr
+                                                ? 'المرحلة ال${m['stage']}'
+                                                : '${m['stage_en']} stage',
                                             style: TextStyle(
                                               fontSize: 10,
                                               fontFamily: 'Cairo',
@@ -496,28 +513,37 @@ class _GradeSelectScreenState extends State<GradeSelectScreen>
                                     ]),
                               borderRadius: BorderRadius.circular(18),
                             ),
-                            child: const Center(
+                            child: Center(
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(
-                                    'التالي',
-                                    style: TextStyle(
+                                    p.isAr ? 'التالي' : 'Next',
+                                    style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 16,
                                       fontWeight: FontWeight.w900,
                                       fontFamily: 'Cairo',
                                     ),
                                   ),
-                                  SizedBox(width: 8),
-                                  Icon(Icons.arrow_back_rounded,
-                                      color: Colors.white, size: 18),
+                                  const SizedBox(width: 8),
+                                  Icon(
+                                      p.isAr
+                                          ? Icons.arrow_back_rounded
+                                          : Icons.arrow_forward_rounded,
+                                      color: Colors.white,
+                                      size: 18),
                                 ],
                               ),
                             ),
                           ),
                         ),
                       ),
+              ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ],
           ),

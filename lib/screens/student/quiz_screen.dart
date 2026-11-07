@@ -18,22 +18,41 @@ class QuizScreen extends StatefulWidget {
 class _QuizScreenState extends State<QuizScreen> {
   List<Map<String, dynamic>> _quizQs = [];
   int _qIdx = 0, _score = 0;
+  int? _selectedIdx;
   bool _quizLoading = false, _qAnswered = false, _quizDone = false;
 
   Future<void> _loadQuiz() async {
+    final isAr = context.read<AppProvider>().isAr;
     setState(() => _quizLoading = true);
     final qs = await AIService.generateQuiz(
-      subject: context.read<AppProvider>().isAr
-          ? widget.subject['ar']!
-          : widget.subject['en']!,
+      subject: isAr ? widget.subject['ar']! : widget.subject['en']!,
       grade: widget.grade,
       pdfTexts: [],
     );
     if (!mounted) return;
+    if (qs.isEmpty || qs.first['isFallbackError'] == true) {
+      setState(() {
+        _quizQs = [];
+        _quizLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isAr
+                ? 'عذراً، حدث ضغط مؤقت في إنشاء الأسئلة. يرجى المحاولة مرة أخرى.'
+                : 'Could not generate quiz questions right now. Please try again.',
+            style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     setState(() {
       _quizQs = qs;
       _qIdx = 0;
       _score = 0;
+      _selectedIdx = null;
       _qAnswered = false;
       _quizDone = false;
       _quizLoading = false;
@@ -42,8 +61,9 @@ class _QuizScreenState extends State<QuizScreen> {
 
   void _answer(int idx) {
     if (_qAnswered) return;
-    final correct = _quizQs[_qIdx]['correctIndex'] as int;
+    final correct = _quizQs[_qIdx]['correctIndex'] as int? ?? 0;
     setState(() {
+      _selectedIdx = idx;
       _qAnswered = true;
       if (idx == correct) _score++;
     });
@@ -53,6 +73,7 @@ class _QuizScreenState extends State<QuizScreen> {
     if (_qIdx < _quizQs.length - 1) {
       setState(() {
         _qIdx++;
+        _selectedIdx = null;
         _qAnswered = false;
       });
     } else {
@@ -72,11 +93,15 @@ class _QuizScreenState extends State<QuizScreen> {
         } catch (_) {
           // Non-critical: show subtle notification if save fails
           if (mounted) {
+            final isAr = context.read<AppProvider>().isAr;
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('تعذّر حفظ النتيجة. ستظهر في سجلك عند الاتصال.',
-                    style: TextStyle(fontFamily: 'Cairo', fontSize: 13)),
-                duration: Duration(seconds: 3),
+              SnackBar(
+                content: Text(
+                    isAr
+                        ? 'تعذّر حفظ النتيجة. ستظهر في سجلك عند الاتصال.'
+                        : 'Could not save score right now. It will sync when online.',
+                    style: const TextStyle(fontFamily: 'Cairo', fontSize: 13)),
+                duration: const Duration(seconds: 3),
                 behavior: SnackBarBehavior.floating,
               ),
             );
@@ -192,7 +217,9 @@ class _QuizScreenState extends State<QuizScreen> {
     final q = _quizQs[_qIdx];
     final opts = List<String>.from(q['options'] ?? []);
     final correct = q['correctIndex'] as int? ?? 0;
-    final letters = ['أ', 'ب', 'ج', 'د'];
+    final letters = p.isAr
+        ? ['أ', 'ب', 'ج', 'د', 'هـ', 'و']
+        : ['A', 'B', 'C', 'D', 'E', 'F'];
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(children: [
@@ -230,7 +257,7 @@ class _QuizScreenState extends State<QuizScreen> {
           child: Text(
             q['question']?.toString() ?? '',
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-            textAlign: TextAlign.right,
+            textAlign: TextAlign.start,
           ),
         ),
         const SizedBox(height: 16),
@@ -238,15 +265,18 @@ class _QuizScreenState extends State<QuizScreen> {
         ...List.generate(opts.length, (i) {
           Color? bg;
           Color border = color.withValues(alpha: 0.2);
+          final isSelectedWrong =
+              _qAnswered && i == _selectedIdx && i != correct;
           if (_qAnswered) {
             if (i == correct) {
               bg = AppTheme.success.withValues(alpha: 0.1);
               border = AppTheme.success;
-            } else if (i != correct) {
+            } else if (isSelectedWrong) {
               bg = Colors.red.withValues(alpha: 0.06);
-              border = Colors.red.withValues(alpha: 0.3);
+              border = Colors.red.withValues(alpha: 0.45);
             }
           }
+          final letter = i < letters.length ? letters[i] : '${i + 1}';
           return GestureDetector(
             onTap: () => _answer(i),
             child: Container(
@@ -261,9 +291,9 @@ class _QuizScreenState extends State<QuizScreen> {
                 if (_qAnswered && i == correct)
                   const Icon(Icons.check_circle,
                       color: AppTheme.success, size: 20)
-                else if (_qAnswered && i != correct)
+                else if (isSelectedWrong)
                   Icon(Icons.cancel_outlined,
-                      color: Colors.red.withValues(alpha: 0.6), size: 20)
+                      color: Colors.red.withValues(alpha: 0.8), size: 20)
                 else
                   Container(
                     width: 24,
@@ -274,7 +304,7 @@ class _QuizScreenState extends State<QuizScreen> {
                     ),
                     child: Center(
                       child: Text(
-                        letters[i],
+                        letter,
                         style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
@@ -303,8 +333,8 @@ class _QuizScreenState extends State<QuizScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('💡 شرح الإجابة:',
-                    style: TextStyle(
+                Text(p.isAr ? '💡 شرح الإجابة:' : '💡 Explanation:',
+                    style: const TextStyle(
                         fontWeight: FontWeight.w700, fontSize: 13)),
                 const SizedBox(height: 4),
                 Text(q['explanation']?.toString() ?? '',
@@ -358,7 +388,9 @@ class _QuizScreenState extends State<QuizScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              pct >= 60 ? 'ممتاز! 🌟' : 'تحتاج مراجعة 📚',
+              pct >= 60
+                  ? (p.isAr ? 'ممتاز! 🌟' : 'Excellent! 🌟')
+                  : (p.isAr ? 'تحتاج مراجعة 📚' : 'Keep practicing 📚'),
               style: TextStyle(color: AppTheme.textSec),
             ),
             const SizedBox(height: 28),

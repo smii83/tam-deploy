@@ -25,6 +25,16 @@ function isAuthorizedAdmin(email) {
   return ADMIN_EMAILS.some(a => a.toLowerCase().trim() === e);
 }
 
+function escapeHtml(val) {
+  if (val === null || val === undefined) return '';
+  return String(val)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // ── Firestore helpers ────────────────────────────────────────────────────────
 async function fsCollection(col) {
   const snap = await db.collection(col).get();
@@ -184,7 +194,7 @@ async function loadOverview() {
     const recent = users.slice(0, 5);
     if (recent.length) {
       let h = '<table><thead><tr><th>الاسم</th><th>البريد</th><th>التاريخ</th></tr></thead><tbody>';
-      recent.forEach(u => { h += `<tr><td>${u.name || '—'}</td><td>${u.email || '—'}</td><td>${u.created ? new Date(u.created.seconds * 1000).toLocaleDateString('ar') : '—'}</td></tr>`; });
+      recent.forEach(u => { h += `<tr><td>${escapeHtml(u.name || '—')}</td><td>${escapeHtml(u.email || '—')}</td><td>${u.created ? new Date(u.created.seconds * 1000).toLocaleDateString('ar') : '—'}</td></tr>`; });
       document.getElementById('recentStudents').innerHTML = h + '</tbody></table>';
     } else document.getElementById('recentStudents').innerHTML = '<p class="empty-msg">لا يوجد طلاب بعد</p>';
   } catch { document.getElementById('stat-students').textContent = '0'; document.getElementById('recentStudents').innerHTML = '<p class="empty-msg">لا يوجد طلاب</p>'; }
@@ -195,9 +205,12 @@ async function loadGrades() {
   try {
     const grades = await fsList('grades', { orderBy: 'grade_number' });
     let h = '';
-    grades.forEach(g => { h += `<div class="grade-card ${g.is_visible ? '' : 'hidden-grade'}"><div class="grade-num">${g.grade_number}</div><div class="grade-name">${g.name_ar}</div><div class="grade-meta">${g.name_en}</div><div class="grade-actions"><label class="toggle-switch"><input type="checkbox" ${g.is_visible ? 'checked' : ''} onchange="toggleGrade('${g.id}',this.checked)"/><div class="toggle-track"></div></label><span style="font-size:0.82rem;color:var(--text-muted)">${g.is_visible ? 'ظاهر' : 'مخفي'}</span></div></div>`; });
+    grades.forEach(g => {
+      const gid = escapeHtml(g.id);
+      h += `<div class="grade-card ${g.is_visible ? '' : 'hidden-grade'}"><div class="grade-num">${escapeHtml(g.grade_number)}</div><div class="grade-name">${escapeHtml(g.name_ar)}</div><div class="grade-meta">${escapeHtml(g.name_en)}</div><div class="grade-actions"><label class="toggle-switch"><input type="checkbox" ${g.is_visible ? 'checked' : ''} onchange="toggleGrade('${gid}',this.checked)"/><div class="toggle-track"></div></label><span style="font-size:0.82rem;color:var(--text-muted)">${g.is_visible ? 'ظاهر' : 'مخفي'}</span></div></div>`;
+    });
     document.getElementById('gradesList').innerHTML = h || '<p class="empty-msg">لا توجد صفوف</p>';
-  } catch (e) { document.getElementById('gradesList').innerHTML = '<p class="empty-msg">خطأ: ' + e.message + '</p>'; }
+  } catch (e) { document.getElementById('gradesList').innerHTML = '<p class="empty-msg">خطأ: ' + escapeHtml(e.message) + '</p>'; }
 }
 async function toggleGrade(id, v) { try { await fsUpdate('grades', id, { is_visible: v }); toast(v ? 'تم إظهار الصف' : 'تم إخفاء الصف'); await loadGrades(); } catch (e) { toast('خطأ: ' + e.message, 'error'); } }
 
@@ -268,9 +281,12 @@ async function loadSubjects() {
     subs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     if (!subs.length) { document.getElementById('subjectsList').innerHTML = '<p class="empty-msg">لا توجد مواد — أضف مادة جديدة</p>'; return; }
     let h = '<table><thead><tr><th>الأيقونة</th><th>المادة (عربي)</th><th>المادة (إنجليزي)</th><th>الترتيب</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody>';
-    subs.forEach(s => { h += `<tr><td>${s.icon || '📘'}</td><td>${s.name_ar}</td><td>${s.name_en || '—'}</td><td>${s.sort_order || 0}</td><td><label class="toggle-switch"><input type="checkbox" ${s.is_visible ? 'checked' : ''} onchange="toggleSubject('${s.id}',this.checked)"/><div class="toggle-track"></div></label></td><td class="actions-cell"><button class="btn-icon" onclick="editSubject('${s.id}')">✏️</button><button class="btn-icon btn-danger" onclick="deleteSubject('${s.id}')">🗑️</button></td></tr>`; });
+    subs.forEach(s => {
+      const sid = escapeHtml(s.id);
+      h += `<tr><td>${escapeHtml(s.icon || '📘')}</td><td>${escapeHtml(s.name_ar)}</td><td>${escapeHtml(s.name_en || '—')}</td><td>${escapeHtml(s.sort_order || 0)}</td><td><label class="toggle-switch"><input type="checkbox" ${s.is_visible ? 'checked' : ''} onchange="toggleSubject('${sid}',this.checked)"/><div class="toggle-track"></div></label></td><td class="actions-cell"><button class="btn-icon" onclick="editSubject('${sid}')">✏️</button><button class="btn-icon btn-danger" onclick="deleteSubject('${sid}')">🗑️</button></td></tr>`;
+    });
     document.getElementById('subjectsList').innerHTML = h + '</tbody></table>';
-  } catch (e) { document.getElementById('subjectsList').innerHTML = '<p class="empty-msg">خطأ: ' + e.message + '</p>'; }
+  } catch (e) { document.getElementById('subjectsList').innerHTML = '<p class="empty-msg">خطأ: ' + escapeHtml(e.message) + '</p>'; }
 }
 async function toggleSubject(id, v) { try { await fsUpdate('subjects', id, { is_visible: v }); toast(v ? 'تم إظهار المادة' : 'تم إخفاء المادة'); await loadSubjects(); } catch (e) { toast('خطأ: ' + e.message, 'error'); } }
 function openAddSubjectModal() {
@@ -332,9 +348,12 @@ async function loadLessons() {
     items.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     if (!items.length) { document.getElementById('lessonsList').innerHTML = '<p class="empty-msg">لا توجد دروس</p>'; return; }
     let h = '<table><thead><tr><th>#</th><th>العنوان</th><th>المدة</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody>';
-    items.forEach(l => { h += `<tr><td>${l.sort_order || 0}</td><td>${l.title_ar || l.name || ''}</td><td>${l.duration_min || 0} د</td><td><label class="toggle-switch"><input type="checkbox" ${l.is_active ? 'checked' : ''} onchange="toggleLesson('${l.id}',this.checked)"/><div class="toggle-track"></div></label></td><td class="actions-cell"><button class="btn-icon" onclick="editLesson('${l.id}')">✏️</button><button class="btn-icon btn-danger" onclick="deleteLesson('${l.id}')">🗑️</button></td></tr>`; });
+    items.forEach(l => {
+      const lid = escapeHtml(l.id);
+      h += `<tr><td>${escapeHtml(l.sort_order || 0)}</td><td>${escapeHtml(l.title_ar || l.name || '')}</td><td>${escapeHtml(l.duration_min || 0)} د</td><td><label class="toggle-switch"><input type="checkbox" ${l.is_active ? 'checked' : ''} onchange="toggleLesson('${lid}',this.checked)"/><div class="toggle-track"></div></label></td><td class="actions-cell"><button class="btn-icon" onclick="editLesson('${lid}')">✏️</button><button class="btn-icon btn-danger" onclick="deleteLesson('${lid}')">🗑️</button></td></tr>`;
+    });
     document.getElementById('lessonsList').innerHTML = h + '</tbody></table>';
-  } catch (e) { document.getElementById('lessonsList').innerHTML = '<p class="empty-msg">خطأ: ' + e.message + '</p>'; }
+  } catch (e) { document.getElementById('lessonsList').innerHTML = '<p class="empty-msg">خطأ: ' + escapeHtml(e.message) + '</p>'; }
 }
 async function toggleLesson(id, v) { try { await fsUpdate('lessons', id, { is_active: v }); toast(v ? 'مفعّل' : 'معطّل'); loadLessons(); } catch (e) { toast('خطأ: ' + e.message, 'error'); } }
 
@@ -411,6 +430,12 @@ async function saveLesson() {
   }
   if (!titleAr) {
     if (errEl) { errEl.textContent = 'يرجى إدخال عنوان الدرس'; errEl.classList.remove('hidden'); }
+    return;
+  }
+  if (videoUrl && /(?:youtube\.com|youtu\.be|vimeo\.com)/i.test(videoUrl)) {
+    const msg = 'مشغل التطبيق يتطلب رابط فيديو مباشر (.mp4 / .m3u8 / Firebase Storage) وليس رابط صفحة YouTube أو Vimeo';
+    if (errEl) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
+    toast(msg, 'error');
     return;
   }
 
@@ -530,9 +555,9 @@ function lessonStatusBadge(pdf, il) {
   if (pdf.pdf_type !== 'summary') return '<span style="opacity:.4">—</span>';
   if (generatingLessons.has(pdf.id) || (il && il.status === 'processing')) return '<span class="badge badge-blue">⏳ جارٍ التوليد</span>';
   if (!il) return '<span style="opacity:.5">لم يُولَّد</span>';
-  if (il.status === 'error') return `<span class="badge badge-red" title="${(il.error || '').replace(/"/g, '')}">❌ فشل</span>`;
+  if (il.status === 'error') return `<span class="badge badge-red" title="${escapeHtml(il.error || '')}">❌ فشل</span>`;
   if (il.status === 'ready') {
-    const audio = il.audio_complete ? '🔊' : `🔇 ${il.audio_done || 0}/${il.audio_total || 0}`;
+    const audio = il.audio_complete ? '🔊' : `🔇 ${escapeHtml(il.audio_done || 0)}/${escapeHtml(il.audio_total || 0)}`;
     return `<span class="badge badge-green">✅ جاهز</span> <small>${audio}</small>`;
   }
   return '—';
@@ -860,13 +885,15 @@ async function loadPdfs() {
     items.forEach(p => {
       const il = ilMap[p.id];
       const isSummary = p.pdf_type === 'summary';
-      const genBtn = isSummary ? `<button class="btn-icon" title="توليد / إعادة توليد الشرح التفاعلي" onclick="generateLessonFor('${p.id}')">🎬</button>` : '';
-      const audioBtn = (isSummary && il && il.status === 'ready' && !il.audio_complete) ? `<button class="btn-icon" title="إكمال الصوت الناقص" onclick="generateLessonFor('${p.id}','audio')">🔊</button>` : '';
-      const linkBtn = p.file_url ? `<a href="${p.file_url}" target="_blank" class="btn-icon" title="معاينة أو تحميل الملف" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">📥</a>` : '<span style="opacity:0.3">—</span>';
-      h += `<tr><td>${p.title_ar || p.name || 'ملف بدون عنوان'}</td><td><span class="badge badge-blue">${types[p.pdf_type] || p.pdf_type || '—'}</span></td><td>${linkBtn}</td><td>${lessonStatusBadge(p, il)}</td><td><label class="toggle-switch"><input type="checkbox" ${p.is_active ? 'checked' : ''} onchange="togglePdf('${p.id}',this.checked)"/><div class="toggle-track"></div></label></td><td class="actions-cell">${genBtn}${audioBtn}<button class="btn-icon btn-danger" onclick="deletePdf('${p.id}')" title="حذف الملف">🗑️</button></td></tr>`;
+      const pid = escapeHtml(p.id);
+      const genBtn = isSummary ? `<button class="btn-icon" title="توليد / إعادة توليد الشرح التفاعلي" onclick="generateLessonFor('${pid}')">🎬</button>` : '';
+      const audioBtn = (isSummary && il && il.status === 'ready' && !il.audio_complete) ? `<button class="btn-icon" title="إكمال الصوت الناقص" onclick="generateLessonFor('${pid}','audio')">🔊</button>` : '';
+      const safeUrl = p.file_url && /^https?:\/\//i.test(String(p.file_url).trim()) ? escapeHtml(String(p.file_url).trim()) : '';
+      const linkBtn = safeUrl ? `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="btn-icon" title="معاينة أو تحميل الملف" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">📥</a>` : '<span style="opacity:0.3">—</span>';
+      h += `<tr><td>${escapeHtml(p.title_ar || p.name || 'ملف بدون عنوان')}</td><td><span class="badge badge-blue">${escapeHtml(types[p.pdf_type] || p.pdf_type || '—')}</span></td><td>${linkBtn}</td><td>${lessonStatusBadge(p, il)}</td><td><label class="toggle-switch"><input type="checkbox" ${p.is_active ? 'checked' : ''} onchange="togglePdf('${pid}',this.checked)"/><div class="toggle-track"></div></label></td><td class="actions-cell">${genBtn}${audioBtn}<button class="btn-icon btn-danger" onclick="deletePdf('${pid}')" title="حذف الملف">🗑️</button></td></tr>`;
     });
     document.getElementById('pdfsList').innerHTML = h + '</tbody></table>';
-  } catch (e) { document.getElementById('pdfsList').innerHTML = '<p class="empty-msg">خطأ: ' + e.message + '</p>'; }
+  } catch (e) { document.getElementById('pdfsList').innerHTML = '<p class="empty-msg">خطأ: ' + escapeHtml(e.message) + '</p>'; }
 }
 async function togglePdf(id, v) { try { await fsUpdate('pdfs', id, { is_active: v }); toast(v ? 'مرئي للطلاب' : 'مخفي عن الطلاب'); loadPdfs(); } catch (e) { toast('خطأ: ' + e.message, 'error'); } }
 
@@ -1001,18 +1028,33 @@ async function savePdf() {
         let finished = false;
         const uploadTask = fileRef.put(file);
 
-        // Safety timeout: prevents infinite freeze if Storage bucket is absent/unprovisioned
-        const timer = setTimeout(() => {
+        // Inactivity watchdog: 30s without progress + 10-minute overall maximum timeout
+        const INACTIVITY_TIMEOUT_MS = 30000;
+        const MAX_UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+        let inactivityTimer = null;
+
+        const failWithTimeout = () => {
           if (!finished) {
             finished = true;
+            clearTimeout(inactivityTimer);
+            clearTimeout(maxTimer);
             try { uploadTask.cancel(); } catch (_) {}
             reject(new Error('STORAGE_TIMEOUT'));
           }
-        }, 6000);
+        };
+
+        const resetInactivityTimer = () => {
+          clearTimeout(inactivityTimer);
+          inactivityTimer = setTimeout(failWithTimeout, INACTIVITY_TIMEOUT_MS);
+        };
+
+        const maxTimer = setTimeout(failWithTimeout, MAX_UPLOAD_TIMEOUT_MS);
+        resetInactivityTimer();
 
         uploadTask.on(
           'state_changed',
           (snapshot) => {
+            resetInactivityTimer();
             if (snapshot.totalBytes > 0) {
               const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
               updatePdfProgress(progress);
@@ -1021,22 +1063,26 @@ async function savePdf() {
           (error) => {
             if (!finished) {
               finished = true;
-              clearTimeout(timer);
+              clearTimeout(inactivityTimer);
+              clearTimeout(maxTimer);
               reject(error);
             }
           },
           async () => {
             try {
+              resetInactivityTimer();
               const downloadUrl = await uploadTask.snapshot.ref.getDownloadURL();
               if (!finished) {
                 finished = true;
-                clearTimeout(timer);
+                clearTimeout(inactivityTimer);
+                clearTimeout(maxTimer);
                 resolve(downloadUrl);
               }
             } catch (err) {
               if (!finished) {
                 finished = true;
-                clearTimeout(timer);
+                clearTimeout(inactivityTimer);
+                clearTimeout(maxTimer);
                 reject(err);
               }
             }
@@ -1101,7 +1147,7 @@ async function savePdf() {
         </div>
       `);
     } else {
-      showPdfModalError(e.message || 'حدث خطأ أثناء حفظ الملف');
+      showPdfModalError(escapeHtml(e.message || 'حدث خطأ أثناء حفظ الملف'));
     }
   } finally {
     saveBtn.disabled = false;
@@ -1140,7 +1186,7 @@ async function loadStudents() {
     renderStudents(allStudents);
   } catch (e) {
     document.getElementById('studentsList').innerHTML =
-      `<p class="empty-msg">❌ خطأ في تحميل الطلاب: ${e.message}</p>`;
+      `<p class="empty-msg">❌ خطأ في تحميل الطلاب: ${escapeHtml(e.message)}</p>`;
   }
 }
 function searchStudents() { const q = document.getElementById('studentSearch').value.toLowerCase(); renderStudents(allStudents.filter(s => (s.name || '').toLowerCase().includes(q) || (s.email || '').toLowerCase().includes(q))); }
@@ -1153,18 +1199,21 @@ function renderStudents(list) {
     const isSubscribed = s.is_subscribed === true ||
       activeSubKeys.has(s.firebase_uid || s.id) ||
       (s.email && activeSubKeys.has(String(s.email).toLowerCase()));
+    const sid = escapeHtml(s.id);
+    const semail = escapeHtml(s.email || '');
+    const suid = escapeHtml(s.firebase_uid || s.id);
     h += `<tr>
-      <td>${s.name || '—'}</td>
-      <td>${s.email || '—'}</td>
-      <td>الصف ${s.grade || '—'} (${sectionName})</td>
+      <td>${escapeHtml(s.name || '—')}</td>
+      <td>${escapeHtml(s.email || '—')}</td>
+      <td>الصف ${escapeHtml(s.grade || '—')} (${escapeHtml(sectionName)})</td>
       <td>${isBlocked ? '<span class="badge badge-red">🚫 محظور</span>' : '<span class="badge badge-green">نشط</span>'}</td>
       <td>${isSubscribed ? '<span class="badge badge-green">✓ مشترك</span>' : '<span class="badge badge-red">غير مشترك</span>'}</td>
       <td>${s.created ? new Date(s.created.seconds * 1000).toLocaleDateString('ar') : '—'}</td>
       <td class="actions-cell">
-        <button class="btn-icon" onclick="openStudentModal('${s.id}')" title="تعديل الطالب">✏️</button>
-        <button class="btn-icon" onclick="toggleBlockStudent('${s.id}', ${isBlocked})" title="${isBlocked ? 'إلغاء الحظر' : 'حظر الطالب'}">${isBlocked ? '🔓' : '🚫'}</button>
-        <button class="btn-icon" onclick="openEditSubscriptionDurationModal('${s.id}', '${s.email || ''}', '${s.firebase_uid || s.id}')" title="تعديل مدة الاشتراك">💰</button>
-        <button class="btn-icon btn-danger" onclick="deleteStudent('${s.id}')" title="حذف الطالب">🗑️</button>
+        <button class="btn-icon" onclick="openStudentModal('${sid}')" title="تعديل الطالب">✏️</button>
+        <button class="btn-icon" onclick="toggleBlockStudent('${sid}', ${isBlocked})" title="${isBlocked ? 'إلغاء الحظر' : 'حظر الطالب'}">${isBlocked ? '🔓' : '🚫'}</button>
+        <button class="btn-icon" onclick="openEditSubscriptionDurationModal('${sid}', '${semail}', '${suid}')" title="تعديل مدة الاشتراك">💰</button>
+        <button class="btn-icon btn-danger" onclick="deleteStudent('${sid}')" title="حذف الطالب">🗑️</button>
       </td>
     </tr>`;
   });
@@ -1179,7 +1228,7 @@ function openStudentModal(id = '') {
     document.getElementById('studentModalTitle').innerText = 'تعديل بيانات الطالب';
     document.getElementById('studentName').value = s.name || '';
     document.getElementById('studentEmail').value = s.email || '';
-    document.getElementById('studentPassword').value = s.password || '';
+    document.getElementById('studentPassword').value = '';
     const hint = document.getElementById('studentPasswordHint');
     if (hint) hint.innerText = '💡 لتغيير كلمة مرور الطالب: اضغط الزر أدناه لإرسال رابط إعادة التعيين لإيميله، أو اكتبها (6 أحرف على الأقل).';
     const btnReset = document.getElementById('btnSendStudentReset');
@@ -1220,7 +1269,7 @@ async function saveStudent() {
   const id = document.getElementById('studentId').value;
   const name = document.getElementById('studentName').value.trim();
   const email = document.getElementById('studentEmail').value.trim();
-  const password = document.getElementById('studentPassword').value.trim();
+  const pass = document.getElementById('studentPassword').value.trim();
   const grade = parseInt(document.getElementById('studentGrade').value) || 12;
   const section = document.getElementById('studentSection').value;
 
@@ -1229,12 +1278,24 @@ async function saveStudent() {
   if (id) {
     // Edit existing student in Firestore
     try {
-      if (password && password.length < 6) {
+      if (pass && pass.length < 6) {
         toast('تنبيه: كلمة المرور في فايربيس يجب ألا تقل عن 6 أحرف', 'error');
         return;
       }
-      const payload = { name, email, grade, section };
-      if (password) payload.password = password;
+      if (pass) {
+        await firebase.app().functions('me-central1').httpsCallable('adminSetUserPassword')({
+          uid: id,
+          email,
+          newPassword: pass
+        });
+      }
+      const payload = {
+        name,
+        email,
+        grade,
+        section,
+        password: firebase.firestore.FieldValue.delete()
+      };
       await fsUpdate('users', id, payload);
       toast('✅ تم تحديث بيانات الطالب بنجاح');
       closeModal('studentModal');
@@ -1242,14 +1303,14 @@ async function saveStudent() {
     } catch (e) { toast('خطأ: ' + e.message, 'error'); }
   } else {
     // Add new student
-    if (!password || password.length < 6) { toast('يرجى إدخال كلمة مرور لا تقل عن 6 أحرف', 'error'); return; }
+    if (!pass || pass.length < 6) { toast('يرجى إدخال كلمة مرور لا تقل عن 6 أحرف', 'error'); return; }
 
     try {
       // Create in Firebase Auth via REST API
       const fbRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, returnSecureToken: false })
+        body: JSON.stringify({ email, password: pass, returnSecureToken: false })
       });
       if (!fbRes.ok) {
         const errData = await fbRes.json();
@@ -1311,7 +1372,7 @@ async function openEditSubscriptionDurationModal(studentId, email, firebaseUid) 
   const endDateEl = document.getElementById('editSubEndDate');
 
   if (currentSub && currentSub.status === 'active') {
-    statusEl.innerHTML = `<span class="badge badge-green">فعّال</span> ينتهي في ${currentSub.end_date || 'غير محدد'}`;
+    statusEl.innerHTML = `<span class="badge badge-green">فعّال</span> ينتهي في ${escapeHtml(currentSub.end_date || 'غير محدد')}`;
     endDateEl.value = currentSub.end_date || new Date().toISOString().split('T')[0];
   } else {
     statusEl.innerHTML = `<span class="badge badge-red">غير مشترك</span>`;
@@ -1384,10 +1445,11 @@ async function loadSubscriptions() {
     let h = toolbar + '<table><thead><tr><th>البريد</th><th>Firebase UID</th><th>الخطة</th><th>الحالة</th><th>البداية</th><th>النهاية</th><th>إجراءات</th></tr></thead><tbody>';
     items.forEach(s => {
       const status = s.status || '—';
-      h += `<tr><td>${s.user_email || '—'}</td><td style="font-size:0.75rem;color:var(--text-muted)">${(s.firebase_uid || '').substring(0, 14)}…</td><td>${s.plan || '—'}</td><td><span class="badge ${bc[status] || ''}">${st[status] || status}</span></td><td>${s.start_date ? new Date(s.start_date).toLocaleDateString('ar') : '—'}</td><td>${s.end_date ? new Date(s.end_date).toLocaleDateString('ar') : '—'}</td><td class="actions-cell">${status !== 'active' ? `<button class="btn-icon" onclick="activateSub('${s.id}')">✅</button>` : ''} ${status === 'active' ? `<button class="btn-icon btn-danger" onclick="cancelSub('${s.id}')">🚫</button>` : ''}<button class="btn-icon btn-danger" onclick="deleteSub('${s.id}')">🗑️</button></td></tr>`;
+      const subId = escapeHtml(s.id);
+      h += `<tr><td>${escapeHtml(s.user_email || '—')}</td><td style="font-size:0.75rem;color:var(--text-muted)">${escapeHtml((s.firebase_uid || '').substring(0, 14))}…</td><td>${escapeHtml(s.plan || '—')}</td><td><span class="badge ${escapeHtml(bc[status] || '')}">${escapeHtml(st[status] || status)}</span></td><td>${s.start_date ? new Date(s.start_date).toLocaleDateString('ar') : '—'}</td><td>${s.end_date ? new Date(s.end_date).toLocaleDateString('ar') : '—'}</td><td class="actions-cell">${status !== 'active' ? `<button class="btn-icon" onclick="activateSub('${subId}')">✅</button>` : ''} ${status === 'active' ? `<button class="btn-icon btn-danger" onclick="cancelSub('${subId}')">🚫</button>` : ''}<button class="btn-icon btn-danger" onclick="deleteSub('${subId}')">🗑️</button></td></tr>`;
     });
     document.getElementById('subscriptionsList').innerHTML = h + '</tbody></table>';
-  } catch (e) { document.getElementById('subscriptionsList').innerHTML = '<p class="empty-msg">خطأ: ' + e.message + '</p>'; }
+  } catch (e) { document.getElementById('subscriptionsList').innerHTML = '<p class="empty-msg">خطأ: ' + escapeHtml(e.message) + '</p>'; }
 }
 async function activateSub(id) {
   const today = new Date().toISOString().split('T')[0];
@@ -1509,12 +1571,12 @@ async function testGeminiConnection() {
     const data = await res.json();
     if (res.ok) {
       const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'تم الاتصال';
-      statusEl.innerHTML = `<span style="color:#10b981;font-weight:bold">✅ الاتصال ناجح ومفتاح API يعمل بدقة! (رد النموذج: ${reply.trim()})</span>`;
+      statusEl.innerHTML = `<span style="color:#10b981;font-weight:bold">✅ الاتصال ناجح ومفتاح API يعمل بدقة! (رد النموذج: ${escapeHtml(reply.trim())})</span>`;
     } else {
-      statusEl.innerHTML = `<span style="color:#ef4444;font-weight:bold">❌ فشل الاتصال (${res.status}): ${data.error?.message || 'خطأ غير معروف'}</span>`;
+      statusEl.innerHTML = `<span style="color:#ef4444;font-weight:bold">❌ فشل الاتصال (${escapeHtml(res.status)}): ${escapeHtml(data.error?.message || 'خطأ غير معروف')}</span>`;
     }
   } catch (e) {
-    statusEl.innerHTML = `<span style="color:#ef4444;font-weight:bold">❌ تعذر الاتصال: ${e.message}</span>`;
+    statusEl.innerHTML = `<span style="color:#ef4444;font-weight:bold">❌ تعذر الاتصال: ${escapeHtml(e.message)}</span>`;
   }
 }
 

@@ -162,73 +162,145 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _apple() async {
-    setState(() => _error = null);
-    // Show grade picker BEFORE setting _loading, so the dialog is not
-    // obscured by the spinner — and _loading stays false if user cancels.
-    final gradeInfo = await _pickGradeIfNeeded();
-    if (!mounted) return;
-    setState(() => _loading = true);
-    final err = await context.read<AuthService>().signInWithApple(
-      grade: gradeInfo.$1,
-      section: gradeInfo.$2,
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final auth = context.read<AuthService>();
+    final p = context.read<AppProvider>();
+    final existingGrade = (p.userData?['grade'] as num?)?.toInt() ?? 0;
+    final existingSection = p.userData?['section'] as String? ?? 'scientific';
+    final err = await auth.signInWithApple(
+      grade: existingGrade > 0 ? existingGrade : 0,
+      section: existingSection,
     );
     if (!mounted) return;
-    setState(() => _loading = false);
     if (err != null) {
-      setState(() => _error = err);
-    } else {
-      _toHome();
+      setState(() {
+        _loading = false;
+        _error = err;
+      });
+      return;
     }
+    if (auth.currentUser == null) {
+      setState(() => _loading = false);
+      return;
+    }
+    final data = await auth.getUserData();
+    if (!mounted) return;
+    final savedGrade = (data?['grade'] as num?)?.toInt() ?? 0;
+    if (savedGrade <= 0) {
+      setState(() => _loading = false);
+      final gradeInfo = await _pickGradeIfNeeded();
+      if (!mounted) return;
+      setState(() => _loading = true);
+      if (data == null && auth.currentUser != null) {
+        await FirestoreDataService.upsertUser(
+          firebaseUid: auth.currentUser!.uid,
+          name: auth.currentUser!.displayName ?? (p.isAr ? 'مستخدم' : 'User'),
+          email: auth.currentUser!.email ?? '',
+          grade: gradeInfo.$1,
+          section: gradeInfo.$2,
+          country: p.selectedCountry,
+          lang: p.language,
+        );
+      }
+      await p.updateGrade(gradeInfo.$1, gradeInfo.$2);
+      if (!mounted) return;
+    }
+    setState(() => _loading = false);
+    _toHome();
   }
 
   Future<void> _google() async {
-    setState(() => _error = null);
-    // Show grade picker BEFORE setting _loading, so the dialog is not
-    // obscured by the spinner — and _loading stays false if user cancels.
-    final gradeInfo = await _pickGradeIfNeeded();
-    if (!mounted) return;
-    setState(() => _loading = true);
-    final err = await context.read<AuthService>().signInWithGoogle(
-      grade: gradeInfo.$1,
-      section: gradeInfo.$2,
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final auth = context.read<AuthService>();
+    final p = context.read<AppProvider>();
+    final existingGrade = (p.userData?['grade'] as num?)?.toInt() ?? 0;
+    final existingSection = p.userData?['section'] as String? ?? 'scientific';
+    final err = await auth.signInWithGoogle(
+      grade: existingGrade > 0 ? existingGrade : 0,
+      section: existingSection,
     );
     if (!mounted) return;
-    setState(() => _loading = false);
     if (err != null) {
-      setState(() => _error = err);
-    } else {
-      _toHome();
+      setState(() {
+        _loading = false;
+        _error = err;
+      });
+      return;
     }
+    if (auth.currentUser == null) {
+      setState(() => _loading = false);
+      return;
+    }
+    final data = await auth.getUserData();
+    if (!mounted) return;
+    final savedGrade = (data?['grade'] as num?)?.toInt() ?? 0;
+    if (savedGrade <= 0) {
+      setState(() => _loading = false);
+      final gradeInfo = await _pickGradeIfNeeded();
+      if (!mounted) return;
+      setState(() => _loading = true);
+      if (data == null && auth.currentUser != null) {
+        await FirestoreDataService.upsertUser(
+          firebaseUid: auth.currentUser!.uid,
+          name: auth.currentUser!.displayName ?? (p.isAr ? 'مستخدم' : 'User'),
+          email: auth.currentUser!.email ?? '',
+          grade: gradeInfo.$1,
+          section: gradeInfo.$2,
+          country: p.selectedCountry,
+          lang: p.language,
+        );
+      }
+      await p.updateGrade(gradeInfo.$1, gradeInfo.$2);
+      if (!mounted) return;
+    }
+    setState(() => _loading = false);
+    _toHome();
   }
 
-  /// Shows a dialog to pick grade before social sign in.
-  /// Returns (grade, section) aligned with the user's country & high school phase.
+  /// Shows a cancelable dialog to pick grade for new social sign-in users.
+  /// Defaults gracefully to grade 12 if dismissed.
   Future<(int, String)> _pickGradeIfNeeded() async {
     final p = context.read<AppProvider>();
     final country = p.selectedCountry;
-    final gradesList = FirestoreDataService.getStaticGradesForCountry(country);
-    
-    int selectedGrade = (gradesList.first['grade_number'] as num).toInt();
-    String selectedSection = gradesList.first['section'] as String? ?? '';
+    final gradesList = FirestoreDataService.getStaticGradesForCountry(country)
+        .where((g) => g['is_visible'] != false)
+        .toList();
+
+    int selectedGrade = gradesList.isNotEmpty
+        ? (gradesList.first['grade_number'] as num).toInt()
+        : 12;
+    String selectedSection = gradesList.isNotEmpty
+        ? (gradesList.first['section'] as String? ?? '')
+        : 'scientific';
 
     await showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('اختر صفك الدراسي',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, fontFamily: 'Cairo')),
+          title: Text(
+              p.isAr ? 'اختر صفك الدراسي' : 'Choose Your Grade',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, fontFamily: 'Cairo')),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('حتى نتمكن من تخصيص المحتوى لك 🎓',
-                  style: TextStyle(fontSize: 12, fontFamily: 'Cairo', color: Colors.grey)),
+              Text(
+                  p.isAr
+                      ? 'يرجى اختيار صفك الدراسي للمتابعة 🎓'
+                      : 'Please select your grade to continue 🎓',
+                  style: const TextStyle(fontSize: 12, fontFamily: 'Cairo', color: Colors.grey)),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 initialValue: '$selectedGrade${selectedSection.isNotEmpty ? '_$selectedSection' : ''}',
                 decoration: InputDecoration(
-                  labelText: 'الصف الدراسي',
+                  labelText: p.isAr ? 'الصف الدراسي' : 'Grade',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                 ),
                 isExpanded: true,
@@ -259,31 +331,40 @@ class _LoginScreenState extends State<LoginScreen>
             ],
           ),
           actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(p.cancel,
+                  style: const TextStyle(fontFamily: 'Cairo', color: AppTheme.textSec)),
+            ),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx),
               style: ElevatedButton.styleFrom(
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text('تأكيد', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w800)),
+              child: Text(p.isAr ? 'متابعة' : 'Continue',
+                  style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w800)),
             ),
           ],
         ),
       ),
     );
-    return (selectedGrade, selectedSection);
+    return (selectedGrade > 0 ? selectedGrade : 12, selectedSection);
   }
 
   void _toHome() async {
     final auth = context.read<AuthService>();
+    final p = context.read<AppProvider>();
     final data = await auth.getUserData();
     if (!mounted) return;
     if (data != null && data['is_blocked'] == true) {
       await auth.logout();
       if (!mounted) return;
-      setState(() => _error = 'لقد تم حظر هذا الحساب من قبل الإدارة.');
+      setState(() => _error = p.isAr
+          ? 'لقد تم حظر هذا الحساب من قبل الإدارة.'
+          : 'This account has been blocked by the administrator.');
       return;
     }
-    context.read<AppProvider>().userData = data;
+    p.userData = data;
 
     // 🔒 Paywall: only subscribed users may enter the app. Everyone else
     // (new Apple/Google sign-ins, expired subscriptions) goes to payment.
@@ -322,59 +403,64 @@ class _LoginScreenState extends State<LoginScreen>
                 position: _slideAnim,
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Language toggle
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: _langToggle(p),
-                      ),
-                      const SizedBox(height: 28),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 480),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Language toggle
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: _langToggle(p),
+                          ),
+                          const SizedBox(height: 28),
 
-                      // ── Logo Hero Section ──────────────────────────
-                      Center(
-                        child: Column(
-                          children: [
-                            // Logo with glow
-                            Container(
-                              padding: const EdgeInsets.all(18),
-                              decoration: BoxDecoration(
-                                color: isDark
-                                    ? Colors.white.withValues(alpha: 0.04)
-                                    : Colors.white.withValues(alpha: 0.6),
-                                borderRadius: BorderRadius.circular(28),
-                                border: Border.all(
-                                  color: AppTheme.primary.withValues(
-                                      alpha: isDark ? 0.18 : 0.12),
-                                  width: 1.5,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AppTheme.primary
-                                        .withValues(alpha: isDark ? 0.20 : 0.12),
-                                    blurRadius: 28,
-                                    offset: const Offset(0, 8),
+                          // ── Logo Hero Section ──────────────────────────
+                          Center(
+                            child: Column(
+                              children: [
+                                // Logo with glow
+                                Container(
+                                  padding: const EdgeInsets.all(18),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? Colors.white.withValues(alpha: 0.04)
+                                        : Colors.white.withValues(alpha: 0.6),
+                                    borderRadius: BorderRadius.circular(28),
+                                    border: Border.all(
+                                      color: AppTheme.primary.withValues(
+                                          alpha: isDark ? 0.18 : 0.12),
+                                      width: 1.5,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: AppTheme.primary
+                                            .withValues(alpha: isDark ? 0.20 : 0.12),
+                                        blurRadius: 28,
+                                        offset: const Offset(0, 8),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                              child: const TamLogoWidget(size: 70),
-                            ),
-                            const SizedBox(height: 14),
-                            // Platform name
-                            ShaderMask(
-                              shaderCallback: (bounds) =>
-                                  AppTheme.gradientFor(p.themeId).createShader(bounds),
-                              child: const Text(
-                                'منصة تـم التعليمية',
-                                style: TextStyle(
-                                  fontFamily: 'Cairo',
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w900,
-                                  color: Colors.white,
+                                  child: const TamLogoWidget(size: 70),
                                 ),
-                              ),
-                            ),
+                                const SizedBox(height: 14),
+                                // Platform name
+                                ShaderMask(
+                                  shaderCallback: (bounds) =>
+                                      AppTheme.gradientFor(p.themeId).createShader(bounds),
+                                  child: Text(
+                                    p.isAr
+                                        ? 'منصة تـم التعليمية'
+                                        : 'TAM Educational Platform',
+                                    style: const TextStyle(
+                                      fontFamily: 'Cairo',
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
                             const SizedBox(height: 4),
                             Text(
                               p.isAr
@@ -667,7 +753,9 @@ class _LoginScreenState extends State<LoginScreen>
                             ),
                           ]),
                       const SizedBox(height: 16),
-                    ],
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),

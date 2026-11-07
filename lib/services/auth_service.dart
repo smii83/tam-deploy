@@ -18,6 +18,9 @@ class AuthService extends ChangeNotifier {
 
   User? get currentUser => _auth.currentUser;
   Stream<User?> get authStream => _auth.authStateChanges();
+  bool get isPasswordUser =>
+      _auth.currentUser?.providerData.any((p) => p.providerId == 'password') ??
+      false;
 
   // ── Register ──────────────────────────────────────────────────────────────
   Future<String?> register({
@@ -227,7 +230,7 @@ class AuthService extends ChangeNotifier {
       final user = _auth.currentUser;
       if (user == null) return 'لا يوجد مستخدم مسجّل';
 
-      // Re-authenticate before deletion for security
+      // Re-authenticate before deletion for password users
       if (password != null && user.email != null) {
         final credential = EmailAuthProvider.credential(
           email: user.email!,
@@ -239,8 +242,49 @@ class AuthService extends ChangeNotifier {
       // 1. Delete user data from Firestore first
       await FirestoreDataService.deleteUserData(user.uid);
 
-      // 2. Delete Firebase Auth account
-      await user.delete();
+      // 2. Delete Firebase Auth account (re-authenticating social users if needed)
+      try {
+        await user.delete();
+      } on FirebaseAuthException catch (e) {
+        if (e.code != 'requires-recent-login') rethrow;
+        final providers = user.providerData.map((p) => p.providerId).toSet();
+        if (providers.contains('apple.com')) {
+          final cred = await SignInWithApple.getAppleIDCredential(
+            scopes: [
+              AppleIDAuthorizationScopes.email,
+              AppleIDAuthorizationScopes.fullName,
+            ],
+          );
+          final oAuth = OAuthProvider('apple.com').credential(
+            idToken: cred.identityToken,
+            accessToken: cred.authorizationCode,
+          );
+          await user.reauthenticateWithCredential(oAuth);
+          await user.delete();
+        } else if (providers.contains('google.com')) {
+          final googleSignIn = GoogleSignIn(
+            clientId: kIsWeb || defaultTargetPlatform == TargetPlatform.iOS
+                ? '82581349835-39166noa7oa449lakj80plqsgegau8rm.apps.googleusercontent.com'
+                : null,
+            serverClientId:
+                '82581349835-hlk2cucplkba8e9j0aen58pqga6nk6m9.apps.googleusercontent.com',
+            scopes: ['email', 'profile'],
+          );
+          final g = await googleSignIn.signIn();
+          if (g == null) {
+            return 'تم إلغاء التحقق من الهوية';
+          }
+          final gAuth = await g.authentication;
+          final credential = GoogleAuthProvider.credential(
+            accessToken: gAuth.accessToken,
+            idToken: gAuth.idToken,
+          );
+          await user.reauthenticateWithCredential(credential);
+          await user.delete();
+        } else {
+          rethrow;
+        }
+      }
 
       notifyListeners();
       return null;

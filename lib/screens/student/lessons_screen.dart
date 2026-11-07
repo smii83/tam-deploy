@@ -48,6 +48,12 @@ class _LessonsScreenState extends State<LessonsScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _completedNotifier.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -678,10 +684,14 @@ class _LessonsScreenState extends State<LessonsScreen> {
       if (videoUrl.isNotEmpty) {
         return AnimatedPressable(
           onTap: () async {
-            await Navigator.push(context, MaterialPageRoute(
-              builder: (_) => VideoPlayerScreen(url: videoUrl, title: title, themeColor: color),
-            ));
-            await _markComplete(lessonId);
+            final watched = await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => VideoPlayerScreen(
+                    url: videoUrl, title: title, themeColor: color),
+              ),
+            );
+            if (watched == true) await _markComplete(lessonId);
           },
           child: winCard,
         );
@@ -828,10 +838,14 @@ class _LessonsScreenState extends State<LessonsScreen> {
       if (videoUrl.isNotEmpty) {
         return AnimatedPressable(
           onTap: () async {
-            await Navigator.push(context, MaterialPageRoute(
-              builder: (_) => VideoPlayerScreen(url: videoUrl, title: title, themeColor: color),
-            ));
-            await _markComplete(lessonId);
+            final watched = await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => VideoPlayerScreen(
+                    url: videoUrl, title: title, themeColor: color),
+              ),
+            );
+            if (watched == true) await _markComplete(lessonId);
           },
           child: sakuraCard,
         );
@@ -1047,7 +1061,7 @@ class _LessonsScreenState extends State<LessonsScreen> {
     if (videoUrl.isNotEmpty) {
       return AnimatedPressable(
         onTap: () async {
-          await Navigator.push(
+          final watched = await Navigator.push<bool>(
             context,
             MaterialPageRoute(
               builder: (_) => VideoPlayerScreen(
@@ -1057,7 +1071,7 @@ class _LessonsScreenState extends State<LessonsScreen> {
               ),
             ),
           );
-          await _markComplete(lessonId);
+          if (watched == true) await _markComplete(lessonId);
         },
         child: cardContent,
       );

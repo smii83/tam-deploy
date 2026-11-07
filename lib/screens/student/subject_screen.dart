@@ -420,9 +420,9 @@ class _SectionCard extends StatelessWidget {
         child: Stack(
           children: [
             // Emoji icon
-            Positioned(
+            PositionedDirectional(
               top: 14,
-              right: 14,
+              start: 14,
               child: Container(
                 width: 42,
                 height: 42,
@@ -441,12 +441,12 @@ class _SectionCard extends StatelessWidget {
               left: 14,
               right: 14,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     title,
-                    textAlign: TextAlign.right,
+                    textAlign: TextAlign.start,
                     style: TextStyle(
                       color: isDark ? Colors.white : const Color(0xFF1A1A2E),
                       fontSize: 13,
@@ -457,7 +457,7 @@ class _SectionCard extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     subtitle,
-                    textAlign: TextAlign.right,
+                    textAlign: TextAlign.start,
                     style: TextStyle(
                       color: accentColor.withValues(alpha: 0.85),
                       fontSize: 9.5,
@@ -516,8 +516,8 @@ class _WideCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.centerRight,
-            end: Alignment.centerLeft,
+            begin: AlignmentDirectional.centerStart,
+            end: AlignmentDirectional.centerEnd,
             colors: [gradientStart, gradientEnd],
           ),
           borderRadius: BorderRadius.circular(20),
@@ -534,8 +534,7 @@ class _WideCard extends StatelessWidget {
           ],
         ),
         child: Column(
-          crossAxisAlignment:
-              isAr ? CrossAxisAlignment.start : CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
+import '../../services/app_provider.dart';
 import '../../utils/security.dart';
 import '../../utils/app_theme.dart';
 
@@ -24,6 +26,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   VideoPlayerController? _videoPlayerController;
   ChewieController? _chewieController;
   bool _hasError = false;
+  bool _playedSuccessfully = false;
   String _errorMessage = '';
 
   @override
@@ -41,6 +44,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       await controller.initialize();
 
       if (!mounted) return;
+      _playedSuccessfully = true;
 
       _chewieController = ChewieController(
         videoPlayerController: controller,
@@ -62,9 +66,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       setState(() {});
     } catch (e) {
       if (!mounted) return;
+      final isAr = context.read<AppProvider>().isAr;
       setState(() {
         _hasError = true;
-        _errorMessage = 'تعذّر تحميل الفيديو. يرجى التحقق من الاتصال والمحاولة مرة أخرى.';
+        _errorMessage = isAr
+            ? 'تعذّر تحميل الفيديو. يرجى التحقق من الاتصال والمحاولة مرة أخرى.'
+            : 'Could not load video. Please check your connection and try again.';
       });
     }
   }
@@ -85,6 +92,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   Widget _errorWidget([String? msg]) {
+    final isAr = context.read<AppProvider>().isAr;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -104,8 +112,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
             ElevatedButton.icon(
               onPressed: _retry,
               icon: const Icon(Icons.refresh_rounded),
-              label: const Text('إعادة المحاولة',
-                  style: TextStyle(fontFamily: 'Cairo')),
+              label: Text(isAr ? 'إعادة المحاولة' : 'Retry',
+                  style: const TextStyle(fontFamily: 'Cairo')),
               style: ElevatedButton.styleFrom(
                 backgroundColor: widget.themeColor,
                 foregroundColor: Colors.white,
@@ -122,43 +130,56 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   @override
   void dispose() {
     SecurityUtils.disableSecureMode();
-    _videoPlayerController?.dispose();
     _chewieController?.dispose();
+    _videoPlayerController?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: widget.themeColor,
-        foregroundColor: Colors.white,
-        title: Text(widget.title,
-            style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                fontFamily: 'Cairo')),
-      ),
-      body: Center(
-        child: _hasError
-            ? _errorWidget()
-            : (_chewieController != null &&
-                    _chewieController!
-                        .videoPlayerController.value.isInitialized
-                ? Chewie(controller: _chewieController!)
-                : Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircularProgressIndicator(color: widget.themeColor),
-                      const SizedBox(height: 16),
-                      const Text('جاري تجهيز الدرس...',
-                          style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 13,
-                              fontFamily: 'Cairo')),
-                    ],
-                  )),
+    final isAr = context.watch<AppProvider>().isAr;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          Navigator.of(context).pop(_playedSuccessfully);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: widget.themeColor,
+          foregroundColor: Colors.white,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).pop(_playedSuccessfully),
+          ),
+          title: Text(widget.title,
+              style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: 'Cairo')),
+        ),
+        body: Center(
+          child: _hasError
+              ? _errorWidget()
+              : (_chewieController != null &&
+                      _chewieController!
+                          .videoPlayerController.value.isInitialized
+                  ? Chewie(controller: _chewieController!)
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: widget.themeColor),
+                        const SizedBox(height: 16),
+                        Text(isAr ? 'جاري تجهيز الدرس...' : 'Preparing lesson...',
+                            style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                                fontFamily: 'Cairo')),
+                      ],
+                    )),
+        ),
       ),
     );
   }

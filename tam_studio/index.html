@@ -73,11 +73,6 @@
         <span id="btnLoginText">تسجيل الدخول</span>
         <span class="arrow">←</span>
       </button>
-
-      <div class="login-credentials-box">
-        <span class="hint-title">بيانات الدخول الافتراضية للمشرف:</span>
-        <code>admin@tam.com</code> / <code>Tam@2026</code>
-      </div>
     </div>
   </div>
 
@@ -255,8 +250,8 @@
 
         <!-- Tabs for Output: PDF Document vs Interactive Slides -->
         <div class="result-tabs">
-          <button class="tab-btn active" onclick="switchResultTab('pdfView')">📄 معاينة مستند PDF (غلاف تَم + الملخص المنقح)</button>
-          <button class="tab-btn" onclick="switchResultTab('whiteboardView')">🎬 معاينة شرائح السبورة التفاعلية المجهزة</button>
+          <button class="tab-btn active" onclick="switchResultTab('pdfView', this)">📄 معاينة مستند PDF (غلاف تَم + الملخص المنقح)</button>
+          <button class="tab-btn" onclick="switchResultTab('whiteboardView', this)">🎬 معاينة شرائح السبورة التفاعلية المجهزة</button>
         </div>
 
         <!-- Tab 1: PDF Document Container -->

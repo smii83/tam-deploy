@@ -43,20 +43,23 @@ class _CameraScreenState extends State<CameraScreen> {
       debugPrint('CameraScreen pick error: $e');
       if (!mounted) return;
       setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-            'تعذّر الوصول إلى الكاميرا أو الصور. تأكد من منح الإذن من إعدادات الجهاز.'),
+      final isAr = context.read<AppProvider>().isAr;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(isAr
+            ? 'تعذّر الوصول إلى الكاميرا أو الصور. تأكد من منح الإذن من إعدادات الجهاز.'
+            : 'Could not access camera or photos. Please check app permissions in settings.'),
       ));
     }
   }
 
   Future<void> _solve(Uint8List bytes, String mimeType) async {
     setState(() => _loading = true);
+    final isAr = context.read<AppProvider>().isAr;
     final subjectName = widget.subject != null
-        ? (context.read<AppProvider>().isAr
+        ? (isAr
             ? widget.subject!['ar']!
             : widget.subject!['en']!)
-        : 'الدراسة';
+        : (isAr ? 'الدراسة' : 'Study');
 
     final answer = _isGradingMode
         ? await AIService.gradeAssignment(

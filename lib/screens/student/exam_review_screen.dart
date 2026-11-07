@@ -87,14 +87,14 @@ class _ExamReviewScreenState extends State<ExamReviewScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '$name — مراجعة الاختبارات',
+                  '$name — ${p.isAr ? 'مراجعة الاختبارات' : 'Exam Review'}',
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 Text(
-                  'الصف ${widget.grade}',
+                  p.isAr ? 'الصف ${widget.grade}' : 'Grade ${widget.grade}',
                   style: const TextStyle(fontSize: 10, color: Colors.white70),
                 ),
               ],
@@ -102,6 +102,7 @@ class _ExamReviewScreenState extends State<ExamReviewScreen> {
             actions: [
               IconButton(
                 icon: const Icon(Icons.refresh_rounded, size: 20),
+                tooltip: p.isAr ? 'تحديث المراجعة' : 'Refresh Review',
                 onPressed: _load,
               ),
             ],
@@ -121,11 +122,11 @@ class _ExamReviewScreenState extends State<ExamReviewScreen> {
           children: [
             const Text('⚠️', style: TextStyle(fontSize: 40)),
             const SizedBox(height: 12),
-            const Text('تعذّر تحميل الملفات'),
+            Text(p.isAr ? 'تعذّر تحميل الملفات' : 'Could not load files'),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _load,
-              child: const Text('إعادة المحاولة'),
+              child: Text(p.isAr ? 'إعادة المحاولة' : 'Retry'),
             ),
           ],
         ),
@@ -150,13 +151,13 @@ class _ExamReviewScreenState extends State<ExamReviewScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'لا توجد اختبارات قديمة بعد',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              Text(
+                p.isAr ? 'لا توجد اختبارات قديمة بعد' : 'No past exams available yet',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),
               Text(
-                'سيتم إضافة الاختبارات قريباً',
+                p.isAr ? 'سيتم إضافة الاختبارات قريباً' : 'Exams will be added soon',
                 style: TextStyle(fontSize: 12, color: AppTheme.textSec),
               ),
             ],
@@ -211,7 +212,7 @@ class _ExamReviewScreenState extends State<ExamReviewScreen> {
             trailing: url.isNotEmpty
                 ? ElevatedButton.icon(
                     icon: const Icon(Icons.menu_book_rounded, size: 16),
-                    label: const Text('اقرأ'),
+                    label: Text(p.isAr ? 'اقرأ' : 'Read'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: color,
                       foregroundColor: Colors.white,

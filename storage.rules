@@ -22,9 +22,10 @@ service firebase.storage {
       );
     }
 
-    // Videos: read if subscribed or admin, write admin only
+    // Videos: read if authenticated (subscription is enforced in-app via
+    // /subscriptions/{txId} records), write admin only
     match /videos/{allPaths=**} {
-      allow read: if isSubscribed();
+      allow read: if isAuth();
       allow write: if isAdmin();
     }
 

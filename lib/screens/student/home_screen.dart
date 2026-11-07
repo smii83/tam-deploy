@@ -392,11 +392,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     /// Find a subject map by its Firestore subject_id
     Map<String, String>? subjectById(String subjectId) {
-      try {
-        return allSubjects.firstWhere((s) => s['id'] == subjectId);
-      } catch (_) {
-        return null;
+      for (final s in allSubjects) {
+        if (s['id'] == subjectId ||
+            s['en']?.toLowerCase().replaceAll(' ', '_') == subjectId) {
+          return s;
+        }
       }
+      return null;
     }
 
     return Column(

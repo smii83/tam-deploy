@@ -1,7 +1,7 @@
 import * as admin from "firebase-admin";
 import { onCall, HttpsError, CallableRequest } from "firebase-functions/v2/https";
 import { GoogleGenerativeAI, Part } from "@google/generative-ai";
-import { defineSecret } from "firebase-functions/params";
+import { defineSecret, defineString } from "firebase-functions/params";
 
 // ── Initialise Firebase Admin ─────────────────────────────────────────────
 admin.initializeApp();
@@ -10,6 +10,11 @@ const db = admin.firestore();
 // ── Gemini API key stored as a Firebase Secret (NOT in client code) ───────
 // Deploy with: firebase functions:secrets:set GEMINI_API_KEY
 const GEMINI_SECRET = defineSecret("GEMINI_API_KEY");
+
+// ── Apple shared secret for server-side receipt validation (OPTIONAL) ─────
+// Plain string param (not a secret) so an unset value never breaks deploys.
+// Set it in functions/.env:  APPLE_SHARED_SECRET=<App Store Connect shared secret>
+const APPLE_SHARED_SECRET = defineString("APPLE_SHARED_SECRET", { default: "" });
 
 // ── Rate Limiting Config ──────────────────────────────────────────────────
 const RATE_LIMITS = {
@@ -253,6 +258,109 @@ export const geminiSummarize = onCall(
   }
 );
 
+// ── Apple App Store receipt validation (optional) ─────────────────────────
+// Configure with: APPLE_SHARED_SECRET in functions/.env (see defineString above).
+const APPLE_PROD_URL = "https://buy.itunes.apple.com/verifyReceipt";
+const APPLE_SANDBOX_URL = "https://sandbox.itunes.apple.com/verifyReceipt";
+
+interface AppleValidation {
+  expiresMs: number;
+  originalTransactionId: string;
+  transactionIds: string[];
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AppleReceiptEntry = Record<string, any>;
+
+async function callAppleVerify(
+  url: string,
+  receiptData: string,
+  sharedSecret: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<Record<string, any>> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        "receipt-data": receiptData,
+        "password": sharedSecret,
+        "exclude-old-transactions": true,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (e) {
+    console.error("Apple verifyReceipt network error", e);
+    throw new HttpsError("unavailable", "تعذّر الاتصال بخادم Apple للتحقق من الاشتراك. يرجى المحاولة مجدداً.");
+  }
+  if (!res.ok) {
+    console.error(`Apple verifyReceipt HTTP ${res.status}`);
+    throw new HttpsError("unavailable", "خادم Apple غير متاح حالياً. يرجى المحاولة مجدداً.");
+  }
+  try {
+    return await res.json();
+  } catch (e) {
+    console.error("Apple verifyReceipt invalid JSON", e);
+    throw new HttpsError("unavailable", "استجابة غير صالحة من خادم Apple. يرجى المحاولة مجدداً.");
+  }
+}
+
+async function validateAppleReceipt(
+  receiptData: string,
+  sharedSecret: string,
+  productId: string
+): Promise<AppleValidation> {
+  let body = await callAppleVerify(APPLE_PROD_URL, receiptData, sharedSecret);
+  // 21007: sandbox receipt sent to production (TestFlight / App Review)
+  if (body.status === 21007) {
+    body = await callAppleVerify(APPLE_SANDBOX_URL, receiptData, sharedSecret);
+  }
+
+  const status = body.status as number;
+  if (status !== 0) {
+    // 21005: receipt server unavailable; 21100-21199: Apple internal errors
+    if (status === 21005 || (status >= 21100 && status <= 21199)) {
+      console.error(`Apple verifyReceipt temporary status ${status}`);
+      throw new HttpsError("unavailable", "خادم Apple مشغول حالياً. يرجى المحاولة مجدداً.");
+    }
+    if (status === 21004) {
+      // Our shared secret does not match — a server configuration problem.
+      console.error("Apple verifyReceipt status 21004: APPLE_SHARED_SECRET is wrong");
+      throw new HttpsError("internal", "تعذّر التحقق من الاشتراك حالياً. يرجى التواصل مع الدعم.");
+    }
+    console.warn(`Apple verifyReceipt rejected receipt, status ${status}`);
+    throw new HttpsError("permission-denied", "الاشتراك منتهي أو غير صالح.");
+  }
+
+  const rawEntries: AppleReceiptEntry[] =
+    Array.isArray(body.latest_receipt_info) && body.latest_receipt_info.length > 0 ?
+      body.latest_receipt_info :
+      (Array.isArray(body.receipt?.in_app) ? body.receipt.in_app : []);
+  const entries = rawEntries.filter((e) => e.product_id === productId);
+  if (entries.length === 0) {
+    throw new HttpsError("permission-denied", "الاشتراك منتهي أو غير صالح.");
+  }
+
+  const expiry = (e: AppleReceiptEntry): number => {
+    const n = Number(e.expires_date_ms);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const latest = entries.reduce((a, b) => (expiry(b) > expiry(a) ? b : a));
+  if (expiry(latest) <= Date.now()) {
+    throw new HttpsError("permission-denied", "الاشتراك منتهي أو غير صالح.");
+  }
+
+  return {
+    expiresMs: expiry(latest),
+    originalTransactionId: String(latest.original_transaction_id ?? ""),
+    transactionIds: entries.flatMap((e) => [
+      String(e.transaction_id ?? ""),
+      String(e.original_transaction_id ?? ""),
+    ]).filter((s) => s.length > 0),
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Cloud Function 5: activateSubscription — Validate IAP receipt & activate
 // ─────────────────────────────────────────────────────────────────────────────
@@ -261,11 +369,13 @@ export const activateSubscription = onCall(
   async (request) => {
     const uid = requireAuth(request);
 
-    const { productId, platform, transactionId, userEmail } = request.data as {
+    const { productId, platform, transactionId, userEmail, receiptData, transactionDateMs } = request.data as {
       productId: string;
       platform: "ios" | "android";
       transactionId: string;
       userEmail?: string;
+      receiptData?: string;
+      transactionDateMs?: number;
     };
 
     // ── Basic input validation ─────────────────────────────────────────────
@@ -284,26 +394,8 @@ export const activateSubscription = onCall(
       throw new HttpsError("invalid-argument", "معرّف المعاملة غير صالح.");
     }
 
-    // ── Prevent duplicate activation (idempotency) ────────────────────────
     const cleanTxId = transactionId.trim();
     const subRef = db.collection("subscriptions").doc(cleanTxId);
-    const existing = await subRef.get();
-    if (existing.exists) {
-      // Ensure user document has is_subscribed flag set (handles device switch / restore)
-      await db.collection("users").doc(uid).update({ is_subscribed: true }).catch(() => {});
-      // Already activated — return success (idempotent)
-      return { success: true, message: "الاشتراك مفعّل بالفعل." };
-    }
-
-    // ── Check that this transactionId hasn't been used by ANOTHER user ─────
-    const duplicateSnap = await db
-      .collection("subscriptions")
-      .where("transaction_id", "==", cleanTxId)
-      .limit(1)
-      .get();
-    if (!duplicateSnap.empty) {
-      throw new HttpsError("already-exists", "هذه المعاملة مُستخدمة بالفعل.");
-    }
 
     // ── Duration map (matching IAP product IDs) ────────────────────────────
     const durationMap: Record<string, number> = {
@@ -319,33 +411,150 @@ export const activateSubscription = onCall(
       throw new HttpsError("invalid-argument", `معرّف المنتج غير معروف: ${productId}`);
     }
 
-    const now = admin.firestore.Timestamp.now();
-    const expiresAt = admin.firestore.Timestamp.fromMillis(
-      Date.now() + durationDays * 86_400_000
-    );
+    // ── Fast path: this transaction was already activated ─────────────────
+    // The subscription document id IS the transaction id, so a single doc read
+    // is enough to detect re-use (no separate duplicate query is needed).
+    const existing = await subRef.get();
+    if (existing.exists && existing.data()?.firebase_uid === uid) {
+      // Same user (device switch / restore) — idempotent success.
+      // Ensure the user document has the is_subscribed flag set.
+      await db.collection("users").doc(uid).update({ is_subscribed: true }).catch(() => {});
+      const prevExp = existing.data()?.expires_at as admin.firestore.Timestamp | undefined;
+      return {
+        success: true,
+        message: "الاشتراك مفعّل بالفعل.",
+        expiresAt: prevExp?.toMillis?.() ?? null,
+      };
+    }
 
-    const subData = {
+    // ── Server-side Apple receipt validation (optional) ────────────────────
+    // Enabled only when APPLE_SHARED_SECRET is configured and the purchase
+    // comes from iOS with a receipt. Android validation is not implemented yet.
+    // TODO(android): validate the Google Play purchase token with the Google
+    // Play Developer API (purchases.subscriptionsv2.get) before activating.
+    const appleSecret = APPLE_SHARED_SECRET.value();
+    let apple: AppleValidation | null = null;
+    if (appleSecret && platform === "ios" && typeof receiptData === "string" && receiptData.length > 0) {
+      apple = await validateAppleReceipt(receiptData, appleSecret, productId);
+    } else if (platform === "ios" && !appleSecret) {
+      console.warn("APPLE_SHARED_SECRET not set — receipt not validated");
+    } else if (platform === "ios" && appleSecret) {
+      // Secret configured but the client sent no receipt: keep legacy behaviour.
+      console.warn("iOS purchase without receiptData — receipt not validated");
+    }
+    const validated = apple !== null;
+    // The validated receipt must actually contain the transaction being claimed
+    // before we allow taking it over from another account.
+    const receiptOwnsTx =
+      apple !== null &&
+      (apple.transactionIds.includes(cleanTxId) ||
+        apple.originalTransactionId === cleanTxId);
+
+    // ── Compute expiry ─────────────────────────────────────────────────────
+    const nowMs = Date.now();
+    const DAY_MS = 86_400_000;
+    let startMs = nowMs;
+    let expiresMs = nowMs + durationDays * DAY_MS;
+    let effectiveDays = durationDays;
+    if (!apple) {
+      // Unvalidated mode: for restored purchases the client sends the store
+      // transaction date. Use it as the start when plausible so restoring an
+      // old purchase can't grant fresh days.
+      const tdMs = Number(transactionDateMs);
+      if (
+        transactionDateMs !== undefined &&
+        transactionDateMs !== null &&
+        Number.isFinite(tdMs) &&
+        tdMs <= nowMs + 5 * 60_000 &&
+        tdMs >= nowMs - 400 * DAY_MS
+      ) {
+        startMs = Math.min(tdMs, nowMs);
+        expiresMs = startMs + durationDays * DAY_MS;
+        if (expiresMs <= nowMs) {
+          throw new HttpsError("failed-precondition", "الاشتراك منتهي.");
+        }
+        effectiveDays = Math.max(1, Math.ceil((expiresMs - nowMs) / DAY_MS));
+      }
+    } else {
+      // Sanity cap: never trust an expiry further out than plan length + 7 days.
+      expiresMs = Math.min(apple.expiresMs, nowMs + (durationDays + 7) * DAY_MS);
+      effectiveDays = Math.max(1, Math.ceil((expiresMs - nowMs) / DAY_MS));
+    }
+
+    const now = admin.firestore.Timestamp.now();
+    const expiresAt = admin.firestore.Timestamp.fromMillis(expiresMs);
+
+    const subData: Record<string, unknown> = {
       firebase_uid: uid,
       user_email: userEmail ?? "",
       product_id: productId,
       platform,
       transaction_id: cleanTxId,
+      original_transaction_id: apple?.originalTransactionId ?? "",
+      validated_by_apple: validated,
       status: "active",
       plan: productId,
-      duration_days: durationDays,
-      start_date: now.toDate().toISOString().substring(0, 10),
+      duration_days: effectiveDays,
+      start_date: new Date(startMs).toISOString().substring(0, 10),
       end_date: expiresAt.toDate().toISOString().substring(0, 10),
       created_at: now,
       expires_at: expiresAt,
     };
 
-    // Write subscription document (Admin SDK bypasses security rules)
-    await subRef.set(subData);
+    // ── Write subscription document (Admin SDK bypasses security rules) ────
+    const transfer: { from: string | null } = { from: null };
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(subRef);
+      if (snap.exists) {
+        const old = snap.data() ?? {};
+        if (old.firebase_uid === uid) {
+          return; // activated concurrently by the same user — idempotent
+        }
+        // The transaction belongs to ANOTHER user. Only a receipt validated by
+        // Apple that really contains this transaction may take it over.
+        if (!receiptOwnsTx) {
+          throw new HttpsError("already-exists", "هذه المعاملة مُستخدمة بالفعل من حساب آخر.");
+        }
+        // The doc id is the transaction id, so archive the previous record
+        // under a new id (status: transferred) before overwriting it.
+        transfer.from = (old.firebase_uid as string | undefined) ?? null;
+        const archiveRef = db.collection("subscriptions").doc(`${cleanTxId}_transferred_${nowMs}`);
+        tx.set(archiveRef, {
+          ...old,
+          status: "transferred",
+          transferred_to_uid: uid,
+          transferred_at: now,
+        });
+        subData.transferred_from_uid = transfer.from ?? "";
+      }
+      tx.set(subRef, subData);
+    });
+
+    // Revoke the old owner's flag if the transfer left them with no active plan
+    if (transfer.from) {
+      try {
+        const oldUid: string = transfer.from;
+        const stillActive = await db
+          .collection("subscriptions")
+          .where("firebase_uid", "==", oldUid)
+          .where("status", "==", "active")
+          .get();
+        const hasValid = stillActive.docs.some((d) => {
+          const exp = d.data().expires_at as admin.firestore.Timestamp | undefined;
+          return !exp || exp.toMillis() > Date.now();
+        });
+        if (!hasValid) {
+          await db.collection("users").doc(oldUid).update({ is_subscribed: false });
+        }
+      } catch (e) {
+        console.warn("Failed to refresh previous owner's subscription flag", e);
+      }
+    }
 
     // Update user's is_subscribed flag
     await db.collection("users").doc(uid).update({ is_subscribed: true });
 
-    return { success: true, durationDays, expiresAt: expiresAt.toMillis() };
+    return { success: true, durationDays: effectiveDays, expiresAt: expiresAt.toMillis() };
   }
 );
 
@@ -389,7 +598,7 @@ export const adminSetUserPassword = onCall(
     await admin.auth().updateUser(targetUid, { password: newPassword });
 
     try {
-      await db.collection("users").doc(targetUid).update({ password: newPassword });
+      await db.collection("users").doc(targetUid).update({ password: admin.firestore.FieldValue.delete() });
     } catch (_) {}
 
     return { success: true };
@@ -398,4 +607,3 @@ export const adminSetUserPassword = onCall(
 
 // ── Interactive lessons (slides + TTS + on-demand Q&A) ─────────────────────
 export * from "./interactive";
-

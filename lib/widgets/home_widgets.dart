@@ -121,7 +121,9 @@ class SearchResultTile extends StatelessWidget {
             ),
             const SizedBox(width: 4),
             Icon(
-              Icons.arrow_forward_ios_rounded,
+              Directionality.of(context) == TextDirection.rtl
+                  ? Icons.arrow_back_ios_new_rounded
+                  : Icons.arrow_forward_ios_rounded,
               size: 12,
               color: isDark ? Colors.white30 : Colors.black26,
             ),
