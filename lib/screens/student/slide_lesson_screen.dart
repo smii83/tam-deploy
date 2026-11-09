@@ -52,7 +52,11 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
     try {
       final lesson = await FirestoreDataService.getInteractiveLesson(widget.pdfId);
       if (!mounted) return;
-      if (lesson == null || lesson.slides(InteractiveLesson.kamila).isEmpty) {
+      final hasKamila =
+          lesson != null && lesson.slides(InteractiveLesson.kamila).isNotEmpty;
+      final hasMukhtasar = lesson != null &&
+          lesson.slides(InteractiveLesson.mukhtasar).isNotEmpty;
+      if (!hasKamila && !hasMukhtasar) {
         setState(() {
           _error = 'هذا الدرس لم يجهز بعد. جرّب بعد قليل.';
           _loading = false;
@@ -63,7 +67,7 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
       final ctrl = LessonPlayerController(
         lesson: lesson,
         country: country,
-        version: lesson.versions.containsKey(InteractiveLesson.kamila)
+        version: hasKamila
             ? InteractiveLesson.kamila
             : InteractiveLesson.mukhtasar,
         onFinished: _onFinished,
@@ -229,6 +233,22 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
               ),
             ),
           ),
+          if (c != null && c.hasBothVersions)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: _chrome.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _versionBtn(c, InteractiveLesson.kamila, 'الشرح الكامل'),
+                  _versionBtn(c, InteractiveLesson.mukhtasar, 'الزبدة'),
+                ],
+              ),
+            ),
           IconButton(
             onPressed: () => setState(() => _dark = !_dark),
             icon: Icon(
@@ -238,6 +258,29 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
             tooltip: _dark ? 'الوضع الفاتح' : 'الوضع الغامق',
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _versionBtn(LessonPlayerController c, String v, String label) {
+    final active = c.version == v;
+    return GestureDetector(
+      onTap: () => c.switchVersion(v),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: active ? _pal.accent : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: active ? Colors.white : _chrome.withValues(alpha: 0.7),
+            fontFamily: 'Cairo',
+            fontSize: 10.5,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
       ),
     );
   }

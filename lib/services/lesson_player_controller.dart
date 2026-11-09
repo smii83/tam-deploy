@@ -38,14 +38,25 @@ class LessonPlayerController extends ChangeNotifier {
   final VoidCallback? onFinished;
 
   // ── Public state ───────────────────────────────────────────────────────────
-  final String _version;
+  String _version;
   int _index = 0;
   bool _playing = false;
   bool _finished = false;
   double _speed = 1.0;
 
   String get version => _version;
+  bool get hasBothVersions =>
+      lesson.slides(InteractiveLesson.kamila).isNotEmpty &&
+      lesson.slides(InteractiveLesson.mukhtasar).isNotEmpty;
   List<LessonSlide> get slides => lesson.slides(_version);
+
+  Future<void> switchVersion(String v) async {
+    if (v == _version || lesson.slides(v).isEmpty) return;
+    _version = v;
+    _prefetchIndex = -1;
+    _playing = true;
+    await _runSlide(0);
+  }
   int get index => _index;
   LessonSlide get current => slides[_index];
   bool get playing => _playing;
