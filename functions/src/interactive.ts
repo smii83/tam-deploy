@@ -19,11 +19,25 @@
 //   lesson_audio/{pdfId}/{hash}.mp3
 // ─────────────────────────────────────────────────────────────────────────────
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { defineSecret } from "firebase-functions/params";
-import * as crypto from "crypto";
 import { assertActiveSubscriber, requireAdmin } from "./auth";
+import {
+  AudioRef,
+  LessonContent,
+  cleanPcm,
+  collectSegments,
+  dialectFor,
+  normalizeAr,
+  normalizeContent,
+  plain,
+  sha1,
+  str,
+  teacherPersonality,
+  totalDuration,
+} from "./logic";
 
 // @breezystack/lamejs is ESM-only; tsc (CommonJS) would rewrite import() into
 // require(), so we keep a native dynamic import.
@@ -53,96 +67,8 @@ const MAX_PDF_BYTES = 18 * 1024 * 1024; // inline limit for Gemini is ~20MB
 const db = () => admin.firestore();
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Types
+// Helpers (pure helpers live in ./logic)
 // ═════════════════════════════════════════════════════════════════════════════
-interface AudioRef {
-  path: string;
-  duration: number; // seconds
-}
-interface Section {
-  type: "section" | "formula" | "example";
-  heading: string;
-  content: string;
-  narration: string;
-  audio?: AudioRef | null;
-}
-interface Hook {
-  available: boolean;
-  text: string | null;
-  narration: string | null;
-  audio?: AudioRef | null;
-}
-interface Zubda {
-  text: string;
-  narration: string;
-  audio?: AudioRef | null;
-}
-interface Version {
-  hook: Hook;
-  sections: Section[];
-  zubda: Zubda;
-}
-interface LessonContent {
-  title: string;
-  subject: string;
-  common: {
-    welcome: { narration: string; audio?: AudioRef | null };
-    intro: { narration: string; audio?: AudioRef | null };
-  };
-  versions: { mukhtasar: Version; kamila: Version };
-  voice?: string;
-}
-type Segment = { narration?: string | null; audio?: AudioRef | null };
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Helpers
-// ═════════════════════════════════════════════════════════════════════════════
-function sha1(s: string): string {
-  return crypto.createHash("sha1").update(s).digest("hex");
-}
-
-function str(v: unknown, max = 4000): string {
-  return typeof v === "string" ? v.trim().slice(0, max) : "";
-}
-
-/** Strip [[concept]] markers so they are not spoken/hashed. */
-function plain(s: string): string {
-  return s.replace(/\[\[|\]\]/g, "");
-}
-
-/** Normalise Arabic text for cache keys. */
-function normalizeAr(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
-    .replace(/[أإآٱ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function dialectFor(country: string): string {
-  switch (country) {
-    case "sa": return "لهجة سعودية خليجية أصيلة";
-    case "ae": return "لهجة إماراتية خليجية أصيلة";
-    default: return "لهجة كويتية خليجية أصيلة";
-  }
-}
-
-function teacherPersonality(country: string): string {
-  const base = `أنت مدرس خليجي محترف بشوش يعطي درساً خصوصياً لطالب كأنك جالس في البيت.
-- تحكي بـ${dialectFor(country)} مريح وطبيعي، مو بأسلوب رسمي.
-- تبدأ كل فكرة جديدة بعبارة تشويقية مثل: "اسمع كيف"، "الحين خل أوضح"، "هذي هي الحلوة"، "والله سؤال وايد مهم".
-- تضرب أمثلة من الحياة اليومية الخليجية.
-- ترحب بالطالب ويحس إنك مهتم فيه شخصياً.
-- ما تحشو الكلام ولا تكرر نفس الجملة.
-- كلامك يُقرأ بصوت عالٍ، فاكتب كلاماً عادياً بدون نقاط مرقّمة ولا ماركداون ولا رموز أو إيموجي.
-- اكتب المعادلات والأرقام والرموز العلمية بالكلمات (مثل: إكس تربيع، جذر اثنين، باي).`;
-  return base;
-}
-
 async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>): Promise<void> {
   let i = 0;
   const workers = Array.from({ length: Math.min(size, items.length) }, async () => {
@@ -195,73 +121,6 @@ function buildLessonPrompt(titleHint: string, subjectName: string, country: stri
 8) hook في kamila: إذا كان الملخص يحتوي سؤال امتحان سابق حقيقي ضعه في text (مع السنة إن وُجدت) و available=true. narration: اجعل المدرس يطرح السؤال بأسلوب تشويقي كأنه اختبار مفاجئ. وإلا اجعل available=false وبقية الحقول null.
 9) zubda: خلاصة الدرس في جملة أو جملتين (text). narration: ختمة المدرس — يلخّص بحرارة ويشجع الطالب بكلام خليجي مألوف.
 10) لا تكرر نفس الشريحة. ولا تنهي بسؤال للطالب.`;
-}
-
-function normSection(raw: unknown): Section | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  const heading = str(r.heading, 300);
-  const content = str(r.content, 1500);
-  if (!heading && !content) return null;
-  const type = r.type === "formula" || r.type === "example" ? r.type : "section";
-  const narration = str(r.narration, 1200) || plain(`${heading}. ${content}`);
-  return { type, heading, content, narration: plain(narration) };
-}
-
-function normVersion(raw: unknown, forceNoHook: boolean): Version {
-  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const hookRaw = (r.hook && typeof r.hook === "object" ? r.hook : {}) as Record<string, unknown>;
-  const hookText = str(hookRaw.text, 1200);
-  const hookAvail = !forceNoHook && hookRaw.available === true && hookText.length > 0;
-  const sections = (Array.isArray(r.sections) ? r.sections : [])
-    .map(normSection)
-    .filter((s): s is Section => s !== null);
-  const zRaw = r.zubda;
-  let zubda: Zubda;
-  if (typeof zRaw === "string") {
-    zubda = { text: str(zRaw, 800), narration: plain(str(zRaw, 800)) };
-  } else {
-    const z = (zRaw && typeof zRaw === "object" ? zRaw : {}) as Record<string, unknown>;
-    const text = str(z.text, 800);
-    zubda = { text, narration: plain(str(z.narration, 800) || text) };
-  }
-  return {
-    hook: {
-      available: hookAvail,
-      text: hookAvail ? hookText : null,
-      narration: hookAvail ? plain(str(hookRaw.narration, 1200) || hookText) : null,
-    },
-    sections,
-    zubda,
-  };
-}
-
-function normalizeContent(raw: unknown, fallbackTitle: string, subjectName: string): LessonContent {
-  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const versions = (r.versions && typeof r.versions === "object" ? r.versions : {}) as Record<string, unknown>;
-  const title = str(r.title, 200) || fallbackTitle;
-  const kamila = normVersion(versions.kamila, false);
-  let mukhtasar = normVersion(versions.mukhtasar, true);
-  // Safety net: if the model failed to produce the short version, derive it.
-  if (mukhtasar.sections.length === 0) {
-    mukhtasar = {
-      hook: { available: false, text: null, narration: null },
-      sections: kamila.sections.filter((s) => s.type !== "example").slice(0, 5),
-      zubda: kamila.zubda,
-    };
-  }
-  if (kamila.sections.length === 0) {
-    throw new Error("EMPTY_LESSON");
-  }
-  return {
-    title,
-    subject: str(r.subject, 100) || subjectName,
-    common: {
-      welcome: { narration: "هلا والله، أهلاً وسهلاً فيك في منصة تَم التعليمية. يا هلا بك معنا." },
-      intro: { narration: `خلنا نبدأ. درسنا اليوم عن ${title}. استعد الحين وخل نشتغل سوا.` },
-    },
-    versions: { mukhtasar, kamila },
-  };
 }
 
 async function generateContentJson(
@@ -369,96 +228,6 @@ async function ttsPcm(apiKey: string, cfg: TtsConfig, text: string): Promise<Buf
   throw new Error(`TTS_FAILED: ${lastErr}`);
 }
 
-/**
- * Gemini TTS clips have a "pop" at the start and a loud, noisy burst after the last word.
- * Every slide is its own clip, so that is audible as static between segments.
- * Steps: high-pass (DC/rumble) → drop edge artifacts → trim → fade in/out → short silent tail.
- * Mirrors scratch/audio_tools/audio_clean.js.
- */
-function cleanPcm(pcm: Buffer, rate: number): Int16Array {
-  const n0 = Math.floor(pcm.length / 2);
-  const x = new Float32Array(n0);
-  const rc = 1 / (2 * Math.PI * 70);
-  const a = rc / (rc + 1 / rate);
-  let px = 0;
-  let py = 0;
-  for (let i = 0; i < n0; i++) {
-    const v = pcm.readInt16LE(i * 2) / 32768;
-    const y = a * (py + v - px);
-    px = v;
-    py = y;
-    x[i] = y;
-  }
-
-  const fl = Math.max(1, Math.round(rate * 0.02));
-  const nf = Math.floor(n0 / fl);
-  const rms = new Float32Array(nf);
-  for (let f = 0; f < nf; f++) {
-    let e = 0;
-    for (let i = f * fl; i < (f + 1) * fl; i++) e += x[i] * x[i];
-    rms[f] = Math.sqrt(e / fl);
-  }
-  const sorted = Array.from(rms).sort((p, q) => p - q);
-  const ref = sorted[Math.floor(sorted.length * 0.9)] || 0;
-  const thresh = Math.max(0.004, ref * 0.07);
-
-  const MERGE = 5;
-  const chunks: Array<[number, number]> = [];
-  for (let f = 0; f < nf; f++) {
-    if (rms[f] <= thresh) continue;
-    const last = chunks[chunks.length - 1];
-    if (last && f - last[1] <= MERGE) last[1] = f;
-    else chunks.push([f, f]);
-  }
-  const stats = ([s, e]: [number, number]) => {
-    const a0 = s * fl;
-    const a1 = (e + 1) * fl;
-    let en = 0;
-    let pk = 0;
-    let z = 0;
-    for (let i = a0; i < a1; i++) {
-      en += x[i] * x[i];
-      const v = Math.abs(x[i]);
-      if (v > pk) pk = v;
-      if (i > a0 && (x[i] >= 0) !== (x[i - 1] >= 0)) z++;
-    }
-    const len = a1 - a0;
-    return { sec: len / rate, rms: Math.sqrt(en / len), peak: pk, zcr: z / len };
-  };
-  while (chunks.length > 1) {
-    const st = stats(chunks[chunks.length - 1]);
-    const gapBefore = (chunks[chunks.length - 1][0] - chunks[chunks.length - 2][1] - 1) * 0.02;
-    const noisy = st.zcr >= 0.22 || st.peak >= 0.95 || st.rms >= ref * 1.6;
-    if (gapBefore >= 0.1 && st.sec <= 0.8 && noisy) chunks.pop();
-    else break;
-  }
-  while (chunks.length > 1) {
-    const st = stats(chunks[0]);
-    const gapAfter = (chunks[1][0] - chunks[0][1] - 1) * 0.02;
-    if (st.sec <= 0.15 && gapAfter >= 0.1) chunks.shift();
-    else break;
-  }
-  let start = 0;
-  let end = n0;
-  if (chunks.length) {
-    start = Math.max(0, chunks[0][0] * fl - Math.round(rate * 0.06));
-    end = Math.min(n0, (chunks[chunks.length - 1][1] + 1) * fl + Math.round(rate * 0.12));
-  }
-
-  const bodyLen = end - start;
-  const tail = Math.round(rate * 0.25);
-  const out = new Int16Array(bodyLen + tail);
-  const fin = Math.min(bodyLen, Math.round(rate * 0.012));
-  const fout = Math.min(bodyLen, Math.round(rate * 0.06));
-  for (let i = 0; i < bodyLen; i++) {
-    let v = x[start + i];
-    if (i < fin) v *= i / fin;
-    if (i >= bodyLen - fout) v *= (bodyLen - 1 - i) / fout;
-    out[i] = Math.max(-32000, Math.min(32000, Math.round(v * 32767)));
-  }
-  return out;
-}
-
 async function pcmToMp3(pcm: Buffer, sampleRate = 24000): Promise<{ mp3: Buffer; duration: number }> {
   const lamejs = await getLame();
   const samples = cleanPcm(pcm, sampleRate);
@@ -503,16 +272,6 @@ async function ensureAudio(
   return { path, duration };
 }
 
-/** Collect every narrated segment inside the lesson (same object refs). */
-function collectSegments(c: LessonContent): Segment[] {
-  const segs: Segment[] = [c.common.welcome, c.common.intro];
-  for (const v of [c.versions.mukhtasar, c.versions.kamila]) {
-    if (v.hook.available) segs.push(v.hook);
-    segs.push(...v.sections, v.zubda);
-  }
-  return segs.filter((s) => (s.narration ?? "").trim().length > 0);
-}
-
 async function attachAudio(
   apiKey: string,
   pdfId: string,
@@ -549,13 +308,6 @@ async function attachAudio(
   return { done, total: segs.length };
 }
 
-function totalDuration(c: LessonContent, version: "mukhtasar" | "kamila"): number {
-  const v = c.versions[version];
-  const segs: Segment[] = [c.common.welcome, c.common.intro, ...v.sections, v.zubda];
-  if (v.hook.available) segs.push(v.hook);
-  return Math.round(segs.reduce((a, s) => a + (s.audio?.duration ?? 0), 0));
-}
-
 // ═════════════════════════════════════════════════════════════════════════════
 // Callable: generateInteractiveLesson  (admin)
 // ═════════════════════════════════════════════════════════════════════════════
@@ -577,7 +329,7 @@ export const generateInteractiveLesson = onCall(
 
     const metaRef = db().collection("interactive_lessons").doc(pdfId);
     const contentRef = db().collection("interactive_content").doc(pdfId);
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
     await metaRef.set(
       {
         pdf_id: pdfId,
@@ -650,7 +402,7 @@ export const generateInteractiveLesson = onCall(
           audio_total: audio.total,
           audio_complete: audio.done >= audio.total,
           voice: content.voice ?? DEFAULT_TTS_VOICE,
-          updated: admin.firestore.FieldValue.serverTimestamp(),
+          updated: FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
@@ -659,7 +411,7 @@ export const generateInteractiveLesson = onCall(
       const msg = e instanceof Error ? e.message : String(e);
       console.error("generateInteractiveLesson failed:", msg);
       await metaRef.set(
-        { status: "error", error: msg.slice(0, 300), updated: admin.firestore.FieldValue.serverTimestamp() },
+        { status: "error", error: msg.slice(0, 300), updated: FieldValue.serverTimestamp() },
         { merge: true }
       );
       throw new HttpsError("internal", `فشل توليد الدرس: ${msg.slice(0, 160)}`);
@@ -718,7 +470,7 @@ export const lessonAsk = onCall(
     const cached = await cacheRef.get();
     const cachedAnswer = cached.data()?.answer;
     if (cached.exists && typeof cachedAnswer === "string") {
-      cacheRef.update({ hits: admin.firestore.FieldValue.increment(1) }).catch(() => undefined);
+      cacheRef.update({ hits: FieldValue.increment(1) }).catch(() => undefined);
       return { answer: cachedAnswer, cached: true };
     }
 
@@ -776,7 +528,7 @@ export const lessonAsk = onCall(
         question,
         answer,
         hits: 0,
-        created: admin.firestore.FieldValue.serverTimestamp(),
+        created: FieldValue.serverTimestamp(),
       })
       .catch(() => undefined);
 

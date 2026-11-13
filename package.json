@@ -1,0 +1,22 @@
+{
+  "name": "tam-platform-tests",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "test:unit": "vitest run --config vitest.config.ts",
+    "test:unit:coverage": "vitest run --config vitest.config.ts --coverage",
+    "test:integration": "node tests/run_emulators.mjs integration",
+    "test:e2e": "node tests/run_emulators.mjs e2e",
+    "test:perf": "node tests/run_emulators.mjs perf",
+    "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e && npm run test:perf"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "@playwright/test": "^1.51.1",
+    "@vitest/coverage-v8": "^3.1.1",
+    "firebase": "^11.4.0",
+    "firebase-admin": "^13.10.0",
+    "firebase-functions": "^6.6.0",
+    "vitest": "^3.1.1"
+  }
+}

@@ -1,11 +1,22 @@
 import * as admin from "firebase-admin";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { GoogleGenerativeAI, Part } from "@google/generative-ai";
 import { defineSecret, defineString } from "firebase-functions/params";
 import { requireAuth, requireAdmin, assertActiveSubscriber } from "./auth";
+import {
+  AppleValidation,
+  VALID_TX_ID_PATTERN,
+  checkRateLimitWithDb,
+  computeSubscriptionWindow,
+  tryModelsWithDelay,
+  validateAppleReceiptWithVerify,
+} from "./logic";
 
 // ── Initialise Firebase Admin ─────────────────────────────────────────────
-admin.initializeApp();
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
 const db = admin.firestore();
 
 // ── Gemini API key stored as a Firebase Secret (NOT in client code) ───────
@@ -17,75 +28,17 @@ const GEMINI_SECRET = defineSecret("GEMINI_API_KEY");
 // Set it in functions/.env:  APPLE_SHARED_SECRET=<App Store Connect shared secret>
 const APPLE_SHARED_SECRET = defineString("APPLE_SHARED_SECRET", { default: "" });
 
-// ── Rate Limiting Config ──────────────────────────────────────────────────
-const RATE_LIMITS = {
-  chat: { maxPerHour: 30 },
-  image: { maxPerHour: 15 },
-};
-
-// ── Model Candidates (official, verified) ─────────────────────────────────
-const MODEL_CANDIDATES = [
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-1.5-flash",
-];
-
 // ── Server-side Rate Limiter (Firestore-backed, cannot be bypassed) ───────
 async function checkRateLimit(uid: string, type: "chat" | "image"): Promise<void> {
-  const ref = db.collection("rate_limits").doc(uid);
-  const chatKey = "chat_count";
-  const imageKey = "image_count";
-  const resetKey = "reset_at";
-  const nowMs = Date.now();
-
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
-    const data = snap.data() ?? {};
-    const resetAt = data[resetKey] ?? 0;
-
-    // New window if expired (count this first request immediately)
-    if (nowMs > resetAt) {
-      tx.set(ref, {
-        [chatKey]: type === "chat" ? 1 : 0,
-        [imageKey]: type === "image" ? 1 : 0,
-        [resetKey]: nowMs + 3_600_000, // 1 hour
-      });
-      return;
-    }
-
-    const countKey = type === "image" ? imageKey : chatKey;
-    const max = type === "image" ? RATE_LIMITS.image.maxPerHour : RATE_LIMITS.chat.maxPerHour;
-    const current = (data[countKey] ?? 0) as number;
-
-    if (current >= max) {
-      throw new HttpsError(
-        "resource-exhausted",
-        `لقد تجاوزت الحد المسموح (${max} طلب/ساعة). يرجى المحاولة لاحقاً 🕐`
-      );
-    }
-    tx.update(ref, { [countKey]: current + 1 });
-  });
+  return checkRateLimitWithDb(db, uid, type);
 }
 
 // ── Try Gemini models with fallback ──────────────────────────────────────
 async function tryModels(
-  apiKey: string,
+  _apiKey: string,
   buildParts: (modelName: string) => Promise<string>
 ): Promise<string> {
-  let lastError = "";
-  for (const modelName of MODEL_CANDIDATES) {
-    try {
-      const result = await buildParts(modelName);
-      if (result.trim()) return result;
-    } catch (e: unknown) {
-      lastError = e instanceof Error ? e.message : String(e);
-      if (lastError.includes("429")) {
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
-      }
-    }
-  }
-  throw new HttpsError("unavailable", `تعذّر الاتصال بخدمة الذكاء الاصطناعي. يرجى المحاولة لاحقاً.`);
+  return tryModelsWithDelay(buildParts);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -253,105 +206,12 @@ export const geminiSummarize = onCall(
 
 // ── Apple App Store receipt validation (optional) ─────────────────────────
 // Configure with: APPLE_SHARED_SECRET in functions/.env (see defineString above).
-const APPLE_PROD_URL = "https://buy.itunes.apple.com/verifyReceipt";
-const APPLE_SANDBOX_URL = "https://sandbox.itunes.apple.com/verifyReceipt";
-
-interface AppleValidation {
-  expiresMs: number;
-  originalTransactionId: string;
-  transactionIds: string[];
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AppleReceiptEntry = Record<string, any>;
-
-async function callAppleVerify(
-  url: string,
-  receiptData: string,
-  sharedSecret: string
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<Record<string, any>> {
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        "receipt-data": receiptData,
-        "password": sharedSecret,
-        "exclude-old-transactions": true,
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch (e) {
-    console.error("Apple verifyReceipt network error", e);
-    throw new HttpsError("unavailable", "تعذّر الاتصال بخادم Apple للتحقق من الاشتراك. يرجى المحاولة مجدداً.");
-  }
-  if (!res.ok) {
-    console.error(`Apple verifyReceipt HTTP ${res.status}`);
-    throw new HttpsError("unavailable", "خادم Apple غير متاح حالياً. يرجى المحاولة مجدداً.");
-  }
-  try {
-    return await res.json();
-  } catch (e) {
-    console.error("Apple verifyReceipt invalid JSON", e);
-    throw new HttpsError("unavailable", "استجابة غير صالحة من خادم Apple. يرجى المحاولة مجدداً.");
-  }
-}
-
 async function validateAppleReceipt(
   receiptData: string,
   sharedSecret: string,
   productId: string
 ): Promise<AppleValidation> {
-  let body = await callAppleVerify(APPLE_PROD_URL, receiptData, sharedSecret);
-  // 21007: sandbox receipt sent to production (TestFlight / App Review)
-  if (body.status === 21007) {
-    body = await callAppleVerify(APPLE_SANDBOX_URL, receiptData, sharedSecret);
-  }
-
-  const status = body.status as number;
-  if (status !== 0) {
-    // 21005: receipt server unavailable; 21100-21199: Apple internal errors
-    if (status === 21005 || (status >= 21100 && status <= 21199)) {
-      console.error(`Apple verifyReceipt temporary status ${status}`);
-      throw new HttpsError("unavailable", "خادم Apple مشغول حالياً. يرجى المحاولة مجدداً.");
-    }
-    if (status === 21004) {
-      // Our shared secret does not match — a server configuration problem.
-      console.error("Apple verifyReceipt status 21004: APPLE_SHARED_SECRET is wrong");
-      throw new HttpsError("internal", "تعذّر التحقق من الاشتراك حالياً. يرجى التواصل مع الدعم.");
-    }
-    console.warn(`Apple verifyReceipt rejected receipt, status ${status}`);
-    throw new HttpsError("permission-denied", "الاشتراك منتهي أو غير صالح.");
-  }
-
-  const rawEntries: AppleReceiptEntry[] =
-    Array.isArray(body.latest_receipt_info) && body.latest_receipt_info.length > 0 ?
-      body.latest_receipt_info :
-      (Array.isArray(body.receipt?.in_app) ? body.receipt.in_app : []);
-  const entries = rawEntries.filter((e) => e.product_id === productId);
-  if (entries.length === 0) {
-    throw new HttpsError("permission-denied", "الاشتراك منتهي أو غير صالح.");
-  }
-
-  const expiry = (e: AppleReceiptEntry): number => {
-    const n = Number(e.expires_date_ms);
-    return Number.isFinite(n) ? n : 0;
-  };
-  const latest = entries.reduce((a, b) => (expiry(b) > expiry(a) ? b : a));
-  if (expiry(latest) <= Date.now()) {
-    throw new HttpsError("permission-denied", "الاشتراك منتهي أو غير صالح.");
-  }
-
-  return {
-    expiresMs: expiry(latest),
-    originalTransactionId: String(latest.original_transaction_id ?? ""),
-    transactionIds: entries.flatMap((e) => [
-      String(e.transaction_id ?? ""),
-      String(e.original_transaction_id ?? ""),
-    ]).filter((s) => s.length > 0),
-  };
+  return validateAppleReceiptWithVerify(receiptData, sharedSecret, productId);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -382,27 +242,15 @@ export const activateSubscription = onCall(
     // ── Validate transactionId format ──────────────────────────────────────
     // iOS: numeric string (StoreKit 1), UUID v4 (StoreKit 2), or alphanumeric token (Sandbox/Local)
     // Android: alphanumeric token from Google Play
-    const validIdPattern = /^[A-Za-z0-9._-]{1,128}$/;
-    if (!transactionId || typeof transactionId !== "string" || !validIdPattern.test(transactionId.trim())) {
+    if (!transactionId || typeof transactionId !== "string" || !VALID_TX_ID_PATTERN.test(transactionId.trim())) {
       throw new HttpsError("invalid-argument", "معرّف المعاملة غير صالح.");
     }
 
     const cleanTxId = transactionId.trim();
     const subRef = db.collection("subscriptions").doc(cleanTxId);
 
-    // ── Duration map (matching IAP product IDs) ────────────────────────────
-    const durationMap: Record<string, number> = {
-      "tam_1month": 30,
-      "tam_3months": 90,
-      "tam_6months": 180,
-      "tam_6months_12kwd": 180, // standard product id
-      "tam_1year": 365,
-    };
-
-    const durationDays = durationMap[productId];
-    if (!durationDays) {
-      throw new HttpsError("invalid-argument", `معرّف المنتج غير معروف: ${productId}`);
-    }
+    // Ensure productId is known before hitting Firestore or Apple
+    computeSubscriptionWindow(productId, null);
 
     // ── Fast path: this transaction was already activated ─────────────────
     // The subscription document id IS the transaction id, so a single doc read
@@ -445,37 +293,15 @@ export const activateSubscription = onCall(
 
     // ── Compute expiry ─────────────────────────────────────────────────────
     const nowMs = Date.now();
-    const DAY_MS = 86_400_000;
-    let startMs = nowMs;
-    let expiresMs = nowMs + durationDays * DAY_MS;
-    let effectiveDays = durationDays;
-    if (!apple) {
-      // Unvalidated mode: for restored purchases the client sends the store
-      // transaction date. Use it as the start when plausible so restoring an
-      // old purchase can't grant fresh days.
-      const tdMs = Number(transactionDateMs);
-      if (
-        transactionDateMs !== undefined &&
-        transactionDateMs !== null &&
-        Number.isFinite(tdMs) &&
-        tdMs <= nowMs + 5 * 60_000 &&
-        tdMs >= nowMs - 400 * DAY_MS
-      ) {
-        startMs = Math.min(tdMs, nowMs);
-        expiresMs = startMs + durationDays * DAY_MS;
-        if (expiresMs <= nowMs) {
-          throw new HttpsError("failed-precondition", "الاشتراك منتهي.");
-        }
-        effectiveDays = Math.max(1, Math.ceil((expiresMs - nowMs) / DAY_MS));
-      }
-    } else {
-      // Sanity cap: never trust an expiry further out than plan length + 7 days.
-      expiresMs = Math.min(apple.expiresMs, nowMs + (durationDays + 7) * DAY_MS);
-      effectiveDays = Math.max(1, Math.ceil((expiresMs - nowMs) / DAY_MS));
-    }
+    const { effectiveDays, startMs, expiresMs } = computeSubscriptionWindow(
+      productId,
+      apple,
+      transactionDateMs,
+      nowMs
+    );
 
-    const now = admin.firestore.Timestamp.now();
-    const expiresAt = admin.firestore.Timestamp.fromMillis(expiresMs);
+    const now = Timestamp.now();
+    const expiresAt = Timestamp.fromMillis(expiresMs);
 
     const subData: Record<string, unknown> = {
       firebase_uid: uid,
@@ -579,7 +405,7 @@ export const adminSetUserPassword = onCall(
     await admin.auth().updateUser(targetUid, { password: newPassword });
 
     try {
-      await db.collection("users").doc(targetUid).update({ password: admin.firestore.FieldValue.delete() });
+      await db.collection("users").doc(targetUid).update({ password: FieldValue.delete() });
     } catch {
       // legacy plaintext field already removed
     }

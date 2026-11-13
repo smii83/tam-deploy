@@ -46,6 +46,10 @@ app.*.map.json
 
 # Environment variables
 .env
+.env.*
+**/.env
+**/.env.*
+**/.secret.*
 assets/env
 
 # ── Android Release Signing (NEVER commit these) ──────────────
@@ -62,3 +66,11 @@ node_modules/
 scratch/audio_tools/
 scratch/generate_physics_lesson.js
 scratch/seed_firestore_curriculum.js
+
+# Automated Test Outputs & Emulator Logs
+playwright-report/
+test-results/
+tests/perf/results/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log

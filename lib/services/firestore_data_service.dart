@@ -485,6 +485,17 @@ class FirestoreDataService {
   // SUBSCRIPTIONS
   // ══════════════════════════════════════════════════════════════════════════
 
+  @visibleForTesting
+  static int comparePdfsForTest(
+          Map<String, dynamic> a, Map<String, dynamic> b) =>
+      _comparePdfs(a, b);
+
+  @visibleForTesting
+  static int naturalCompareForTest(String a, String b) => _naturalCompare(a, b);
+
+  @visibleForTesting
+  static bool isRecordValidForTest(Map<String, dynamic> d) => _isRecordValid(d);
+
   /// True when a subscription record is 'active' and has not expired yet.
   /// Records written by the admin dashboard use `end_date` (YYYY-MM-DD);
   /// records written by the Cloud Function also carry `expires_at`.

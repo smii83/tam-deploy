@@ -15,24 +15,12 @@ const auth = firebase.auth();
 const storage = firebase.storage();
 // Cloud Functions (same region as the deployed callables)
 const functions = firebase.app().functions('me-central1');
-
-// Admin email whitelist — only these emails can log in
-const ADMIN_EMAILS = ['admin@tam.com', 'tamteach01@gmail.com', 'tam.app83@gmail.com', 'tm.app83@gmail.com', 'admin@eduspark.com'];
-
-function isAuthorizedAdmin(email) {
-  if (!email) return false;
-  const e = email.toLowerCase().trim();
-  return ADMIN_EMAILS.some(a => a.toLowerCase().trim() === e);
-}
-
-function escapeHtml(val) {
-  if (val === null || val === undefined) return '';
-  return String(val)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+const USE_EMULATOR = typeof isEmulatorMode === 'function' && isEmulatorMode();
+if (USE_EMULATOR) {
+  auth.useEmulator('http://127.0.0.1:9099', { disableWarnings: true });
+  db.useEmulator('127.0.0.1', 8080);
+  if (typeof storage.useEmulator === 'function') storage.useEmulator('127.0.0.1', 9199);
+  functions.useEmulator('127.0.0.1', 5001);
 }
 
 // ── Firestore helpers ────────────────────────────────────────────────────────
@@ -470,21 +458,6 @@ async function deleteLesson(id) { if (!confirm('حذف هذا الدرس؟')) re
 // ── PDFs ──────────────────────────────────────────────────────────────────────
 let pdfInputMode = 'link'; // Default to link mode (fastest & 100% free via Google Drive)
 
-function formatDirectPdfUrl(rawUrl) {
-  if (!rawUrl) return '';
-  let url = rawUrl.trim();
-  // Handle Google Drive share links
-  const driveMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-  if (driveMatch && (url.includes('drive.google.com') || url.includes('docs.google.com'))) {
-    return `https://drive.google.com/uc?export=download&id=${driveMatch[1]}`;
-  }
-  // Handle Dropbox share links
-  if (url.includes('dropbox.com')) {
-    return url.replace('?dl=0', '?dl=1').replace('&dl=0', '&dl=1');
-  }
-  return url;
-}
-
 function setPdfMode(mode) {
   pdfInputMode = mode;
   const uploadContainer = document.getElementById('pdfUploadContainer');
@@ -551,17 +524,6 @@ async function onPdfModalGradeChange(selectSid = null) {
 
 // ── Interactive lessons (السبورة التفاعلية) ─────────────────────────────────
 const generatingLessons = new Set();
-function lessonStatusBadge(pdf, il) {
-  if (pdf.pdf_type !== 'summary') return '<span style="opacity:.4">—</span>';
-  if (generatingLessons.has(pdf.id) || (il && il.status === 'processing')) return '<span class="badge badge-blue">⏳ جارٍ التوليد</span>';
-  if (!il) return '<span style="opacity:.5">لم يُولَّد</span>';
-  if (il.status === 'error') return `<span class="badge badge-red" title="${escapeHtml(il.error || '')}">❌ فشل</span>`;
-  if (il.status === 'ready') {
-    const audio = il.audio_complete ? '🔊' : `🔇 ${escapeHtml(il.audio_done || 0)}/${escapeHtml(il.audio_total || 0)}`;
-    return `<span class="badge badge-green">✅ جاهز</span> <small>${audio}</small>`;
-  }
-  return '—';
-}
 async function generateLessonFor(pdfId, mode = 'full') {
   if (generatingLessons.has(pdfId)) return;
   generatingLessons.add(pdfId);
@@ -742,15 +704,6 @@ async function geminiCall(model, key, body) {
   throw new Error(`${model}: فشل بعد عدة محاولات`);
 }
 
-function lessonSegments(c) {
-  const segs = [c.common.welcome, c.common.intro];
-  for (const v of [c.versions.mukhtasar, c.versions.kamila]) {
-    if (v.hook && v.hook.available && v.hook.narration) segs.push(v.hook);
-    segs.push(...v.sections, v.zubda);
-  }
-  return segs.filter(s => s && (s.narration || '').trim());
-}
-
 async function polishNarrations(key, narrations, subject, title) {
   const prompt = `أنت معلم كويتي خبير تكتب نصوص شرح تُقرأ بصوت عالٍ (TTS) لدرس "${title}" في مادة "${subject}".
 أمامك مصفوفة JSON من ${narrations.length} نصاً منطوقاً. أعد كتابة كل نص ليكون:
@@ -890,7 +843,7 @@ async function loadPdfs() {
       const audioBtn = (isSummary && il && il.status === 'ready' && !il.audio_complete) ? `<button class="btn-icon" title="إكمال الصوت الناقص" onclick="generateLessonFor('${pid}','audio')">🔊</button>` : '';
       const safeUrl = p.file_url && /^https?:\/\//i.test(String(p.file_url).trim()) ? escapeHtml(String(p.file_url).trim()) : '';
       const linkBtn = safeUrl ? `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="btn-icon" title="معاينة أو تحميل الملف" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">📥</a>` : '<span style="opacity:0.3">—</span>';
-      h += `<tr><td>${escapeHtml(p.title_ar || p.name || 'ملف بدون عنوان')}</td><td><span class="badge badge-blue">${escapeHtml(types[p.pdf_type] || p.pdf_type || '—')}</span></td><td>${linkBtn}</td><td>${lessonStatusBadge(p, il)}</td><td><label class="toggle-switch"><input type="checkbox" ${p.is_active ? 'checked' : ''} onchange="togglePdf('${pid}',this.checked)"/><div class="toggle-track"></div></label></td><td class="actions-cell">${genBtn}${audioBtn}<button class="btn-icon btn-danger" onclick="deletePdf('${pid}')" title="حذف الملف">🗑️</button></td></tr>`;
+      h += `<tr><td>${escapeHtml(p.title_ar || p.name || 'ملف بدون عنوان')}</td><td><span class="badge badge-blue">${escapeHtml(types[p.pdf_type] || p.pdf_type || '—')}</span></td><td>${linkBtn}</td><td>${lessonStatusBadge(p, il, generatingLessons)}</td><td><label class="toggle-switch"><input type="checkbox" ${p.is_active ? 'checked' : ''} onchange="togglePdf('${pid}',this.checked)"/><div class="toggle-track"></div></label></td><td class="actions-cell">${genBtn}${audioBtn}<button class="btn-icon btn-danger" onclick="deletePdf('${pid}')" title="حذف الملف">🗑️</button></td></tr>`;
     });
     document.getElementById('pdfsList').innerHTML = h + '</tbody></table>';
   } catch (e) { document.getElementById('pdfsList').innerHTML = '<p class="empty-msg">خطأ: ' + escapeHtml(e.message) + '</p>'; }
@@ -1306,8 +1259,8 @@ async function saveStudent() {
     if (!pass || pass.length < 6) { toast('يرجى إدخال كلمة مرور لا تقل عن 6 أحرف', 'error'); return; }
 
     try {
-      // Create in Firebase Auth via REST API
-      const fbRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`, {
+      // Create in Firebase Auth via REST API (or local Auth Emulator when ?emulator=1)
+      const fbRes = await fetch(resolveIdentityToolkitUrl('accounts:signUp', firebaseConfig.apiKey, USE_EMULATOR), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password: pass, returnSecureToken: false })

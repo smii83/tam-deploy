@@ -386,7 +386,8 @@ class AuthService extends ChangeNotifier {
   }
 
   // ── Auth error messages ───────────────────────────────────────────────────
-  String _authError(String code, {bool isAr = true}) {
+  @visibleForTesting
+  static String mapAuthError(String code, {bool isAr = true}) {
     switch (code) {
       case 'user-not-found':
         return isAr ? 'البريد الإلكتروني غير مسجل' : 'Email not registered';
@@ -410,4 +411,7 @@ class AuthService extends ChangeNotifier {
         return isAr ? 'حدث خطأ: $code' : 'Authentication error: $code';
     }
   }
+
+  String _authError(String code, {bool isAr = true}) =>
+      mapAuthError(code, isAr: isAr);
 }

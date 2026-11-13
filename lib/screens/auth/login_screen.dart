@@ -747,8 +747,10 @@ class _LoginScreenState extends State<LoginScreen>
                       const SizedBox(height: 28),
 
                       // Register link
-                      Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                      Wrap(
+                          alignment: WrapAlignment.center,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          runSpacing: 4,
                           children: [
                             Text(
                               p.isAr

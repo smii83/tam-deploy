@@ -15,19 +15,22 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
 const storage = firebase.storage();
+const USE_EMULATOR = typeof isEmulatorMode === 'function' && isEmulatorMode();
+if (USE_EMULATOR) {
+  auth.useEmulator('http://127.0.0.1:9099', { disableWarnings: true });
+  db.useEmulator('127.0.0.1', 8080);
+  if (typeof storage.useEmulator === 'function') storage.useEmulator('127.0.0.1', 9199);
+}
 
 let selectedPdfFile = null;
 let selectedPdfBase64 = null;
 let currentSummaryData = null;
 let generatedPdfBlob = null;
 
-// Admin whitelist
-const ADMIN_EMAILS = [
-  'tam.app83@gmail.com',
-  'tm.app83@gmail.com',
-  'tamteach01@gmail.com',
-  'admin@tam.com'
-];
+// Admin whitelist (Studio uses STUDIO_ADMIN_EMAILS from helpers.js)
+function isStudioAdmin(email) {
+  return typeof isAuthorizedAdmin === 'function' && isAuthorizedAdmin(email, STUDIO_ADMIN_EMAILS);
+}
 
 // Initialize on Load
 document.addEventListener('DOMContentLoaded', async () => {
@@ -57,7 +60,7 @@ function setupAuthListeners() {
 
 function checkAuthSession() {
   auth.onAuthStateChanged(async (user) => {
-    if (user && isAuthorizedAdmin(user.email)) {
+    if (user && isStudioAdmin(user.email)) {
       grantAccess(user.email);
     } else {
       if (user) {
@@ -66,12 +69,6 @@ function checkAuthSession() {
       showLoginScreen();
     }
   });
-}
-
-function isAuthorizedAdmin(email) {
-  if (!email) return false;
-  const e = email.toLowerCase().trim();
-  return ADMIN_EMAILS.some(a => a.toLowerCase().trim() === e);
 }
 
 function showLoginScreen() {
@@ -107,7 +104,7 @@ async function handleStudioLogin() {
   try {
     const cred = await auth.signInWithEmailAndPassword(user, pass);
     const signedInEmail = (cred.user && cred.user.email) ? cred.user.email : user;
-    if (!isAuthorizedAdmin(signedInEmail)) {
+    if (!isStudioAdmin(signedInEmail)) {
       await auth.signOut();
       throw new Error('هذا الحساب ليس مشرفاً معتمداً في منصة تَم');
     }
@@ -782,16 +779,6 @@ function resetStudio() {
   document.getElementById('stepCard1').classList.remove('hidden');
   setStepper(1);
   checkCanProcess();
-}
-
-function escapeHtml(text) {
-  if (!text) return '';
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
 }
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

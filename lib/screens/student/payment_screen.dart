@@ -12,7 +12,6 @@ import '../../widgets/animated_pressable.dart';
 import '../auth/login_screen.dart';
 import 'home_screen.dart';
 
-
 class PaymentScreen extends StatefulWidget {
   const PaymentScreen({super.key});
   @override
@@ -90,7 +89,8 @@ class _PaymentScreenState extends State<PaymentScreen>
       if (res.notFoundIDs.isNotEmpty) {
         debugPrint('IAP: product(s) not found in store: ${res.notFoundIDs}');
         if (_iapIssue.isEmpty) {
-          _iapIssue = 'Product not found in store: ${res.notFoundIDs.join(', ')}';
+          _iapIssue =
+              'Product not found in store: ${res.notFoundIDs.join(', ')}';
         }
       }
       if (!mounted) return;
@@ -171,14 +171,14 @@ class _PaymentScreenState extends State<PaymentScreen>
     final purchaseParam = PurchaseParam(productDetails: product);
     try {
       // Auto-renewable subscriptions & non-consumables use buyNonConsumable
-      final started = await InAppPurchase.instance.buyNonConsumable(
-          purchaseParam: purchaseParam);
+      final started = await InAppPurchase.instance
+          .buyNonConsumable(purchaseParam: purchaseParam);
       if (!started && mounted) setState(() => _purchasing = false);
     } catch (e) {
       debugPrint('IAP: buyNonConsumable failed: $e, trying buyConsumable');
       try {
-        final started = await InAppPurchase.instance.buyConsumable(
-            purchaseParam: purchaseParam);
+        final started = await InAppPurchase.instance
+            .buyConsumable(purchaseParam: purchaseParam);
         if (!started && mounted) setState(() => _purchasing = false);
       } catch (e2) {
         debugPrint('IAP: buyConsumable failed: $e2');
@@ -237,58 +237,60 @@ class _PaymentScreenState extends State<PaymentScreen>
         context: context,
         barrierDismissible: false,
         builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        contentPadding: const EdgeInsets.all(28),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              gradient: AppTheme.goldGrad,
-              shape: BoxShape.circle,
-            ),
-            child: const Center(
-                child: Text('🎉', style: TextStyle(fontSize: 38))),
-          ),
-          const SizedBox(height: 16),
-          Text(
-              p.isAr ? 'تم الاشتراك بنجاح!' : 'Subscription Activated!',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 8),
-          Text(
-              p.isAr ? 'مرحباً بك في منصة تم 🎓' : 'Welcome to TAM Platform 🎓',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 13, color: AppTheme.textSec)),
-          const SizedBox(height: 24),
-          AnimatedPressable(
-            onTap: () => Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const HomeScreen()),
-                (_) => false),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          contentPadding: const EdgeInsets.all(28),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 80,
+              height: 80,
               decoration: BoxDecoration(
-                gradient: AppTheme.gradientFor(p.themeId),
-                borderRadius: BorderRadius.circular(14),
+                gradient: AppTheme.goldGrad,
+                shape: BoxShape.circle,
               ),
-              child: Center(
-                child: Text(
-                  p.isAr ? 'ابدأ رحلتك التعليمية ←' : 'Start Learning →',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 15,
-                    fontFamily: 'Cairo',
+              child: const Center(
+                  child: Text('🎉', style: TextStyle(fontSize: 38))),
+            ),
+            const SizedBox(height: 16),
+            Text(p.isAr ? 'تم الاشتراك بنجاح!' : 'Subscription Activated!',
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8),
+            Text(
+                p.isAr
+                    ? 'مرحباً بك في منصة تم 🎓'
+                    : 'Welcome to TAM Platform 🎓',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: AppTheme.textSec)),
+            const SizedBox(height: 24),
+            AnimatedPressable(
+              onTap: () => Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const HomeScreen()),
+                  (_) => false),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(
+                  gradient: AppTheme.gradientFor(p.themeId),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Center(
+                  child: Text(
+                    p.isAr ? 'ابدأ رحلتك التعليمية ←' : 'Start Learning →',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 15,
+                      fontFamily: 'Cairo',
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ]),
-      ),
-    );
+          ]),
+        ),
+      );
     });
   }
 
@@ -296,31 +298,112 @@ class _PaymentScreenState extends State<PaymentScreen>
   Widget build(BuildContext context) {
     final p = context.watch<AppProvider>();
     final isDark = p.isDark;
-    final priceText = _products.isNotEmpty
-        ? _products.first.price
-        : (p.isAr ? '12 د.ك / 6 أشهر' : '12 KWD / 6 Months');
 
     return Scaffold(
       backgroundColor:
-          isDark ? const Color(0xFF0F111A) : const Color(0xFFEEEDFF),
-      body: Column(
+          isDark ? const Color(0xFF070913) : const Color(0xFFEEEDFF),
+      body: Stack(
         children: [
-          // ── Premium gradient header ───────────────────────────────────
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Color(0xFF6C63FF),
-                  Color(0xFF4F46E5),
-                  Color(0xFF00B8A9),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+          if (isDark)
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Color(0xFF070913),
+                      Color(0xFF0D1126),
+                      Color(0xFF080D1B),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
               ),
             ),
-            child: Stack(
-              children: [
-                SafeArea(
+          if (isDark) ...[
+            Positioned(
+              top: -70,
+              left: -50,
+              child: IgnorePointer(
+                child: Container(
+                  width: 240,
+                  height: 240,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        const Color(0xFF7C3AED).withValues(alpha: 0.22),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: 60,
+              right: -60,
+              child: IgnorePointer(
+                child: Container(
+                  width: 260,
+                  height: 260,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        const Color(0xFF06B6D4).withValues(alpha: 0.14),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          Column(
+            children: [
+              // ── Premium gradient header ───────────────────────────────────
+              Container(
+                decoration: BoxDecoration(
+                  gradient: isDark
+                      ? const LinearGradient(
+                          colors: [
+                            Color(0xFF18143E),
+                            Color(0xFF121A36),
+                            Color(0xFF0B162B),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : const LinearGradient(
+                          colors: [
+                            Color(0xFF6C63FF),
+                            Color(0xFF4F46E5),
+                            Color(0xFF00B8A9),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                  border: isDark
+                      ? Border(
+                          bottom: BorderSide(
+                            color: const Color(0xFF818CF8)
+                                .withValues(alpha: 0.22),
+                          ),
+                        )
+                      : null,
+                  boxShadow: isDark
+                      ? [
+                          BoxShadow(
+                            color: const Color(0xFF6366F1)
+                                .withValues(alpha: 0.16),
+                            blurRadius: 24,
+                            offset: const Offset(0, 6),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: SafeArea(
                   bottom: false,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
@@ -337,11 +420,12 @@ class _PaymentScreenState extends State<PaymentScreen>
                                   width: 40,
                                   height: 40,
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.15),
+                                    color: Colors.white
+                                        .withValues(alpha: isDark ? 0.08 : 0.15),
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                        color: Colors.white
-                                            .withValues(alpha: 0.2)),
+                                        color: Colors.white.withValues(
+                                            alpha: isDark ? 0.14 : 0.2)),
                                   ),
                                   child: Icon(
                                     p.isAr
@@ -370,11 +454,12 @@ class _PaymentScreenState extends State<PaymentScreen>
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 12, vertical: 6),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.15),
+                                  color: Colors.white
+                                      .withValues(alpha: isDark ? 0.08 : 0.15),
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.2)),
+                                      color: Colors.white.withValues(
+                                          alpha: isDark ? 0.14 : 0.2)),
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -400,9 +485,29 @@ class _PaymentScreenState extends State<PaymentScreen>
                         // Logo + Title row
                         Row(
                           children: [
-                            SizedBox(
-                              width: 48,
-                              height: 48,
+                            Container(
+                              width: 52,
+                              height: 52,
+                              padding: EdgeInsets.all(isDark ? 6 : 0),
+                              decoration: isDark
+                                  ? BoxDecoration(
+                                      borderRadius: BorderRadius.circular(16),
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          const Color(0xFF8B5CF6)
+                                              .withValues(alpha: 0.22),
+                                          const Color(0xFF06B6D4)
+                                              .withValues(alpha: 0.14),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                      border: Border.all(
+                                        color: Colors.white
+                                            .withValues(alpha: 0.16),
+                                      ),
+                                    )
+                                  : null,
                               child: Image.asset(
                                 'assets/images/logo_dark.png',
                                 fit: BoxFit.contain,
@@ -427,16 +532,27 @@ class _PaymentScreenState extends State<PaymentScreen>
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 10, vertical: 3),
                                     decoration: BoxDecoration(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.15),
+                                      color: isDark
+                                          ? const Color(0xFF38BDF8)
+                                              .withValues(alpha: 0.14)
+                                          : Colors.white
+                                              .withValues(alpha: 0.15),
                                       borderRadius: BorderRadius.circular(10),
+                                      border: isDark
+                                          ? Border.all(
+                                              color: const Color(0xFF38BDF8)
+                                                  .withValues(alpha: 0.30),
+                                            )
+                                          : null,
                                     ),
                                     child: Text(
                                       p.isAr
                                           ? '🏆 وصول كامل لجميع المواد'
                                           : '🏆 Full Access to All Subjects',
-                                      style: const TextStyle(
-                                        color: Colors.white,
+                                      style: TextStyle(
+                                        color: isDark
+                                            ? const Color(0xFFE0F2FE)
+                                            : Colors.white,
                                         fontSize: 10,
                                         fontFamily: 'Cairo',
                                         fontWeight: FontWeight.w700,
@@ -452,9 +568,7 @@ class _PaymentScreenState extends State<PaymentScreen>
                     ),
                   ),
                 ),
-              ],
-            ),
-          ),
+              ),
 
           // ── Scrollable content ───────────────────────────────────────
           Expanded(
@@ -470,90 +584,132 @@ class _PaymentScreenState extends State<PaymentScreen>
                         width: double.infinity,
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
+                          gradient: isDark
+                              ? const LinearGradient(
+                                  colors: [
+                                    Color(0xFF161A31),
+                                    Color(0xFF101325),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                )
+                              : null,
                           color: isDark
-                              ? const Color(0xFF181A24)
+                              ? null
                               : Colors.white.withValues(alpha: 0.95),
                           borderRadius: BorderRadius.circular(24),
                           border: Border.all(
-                            color: AppTheme.primary
-                                .withValues(alpha: isDark ? 0.18 : 0.10),
-                            width: 1.5,
+                            color: isDark
+                                ? const Color(0xFF818CF8)
+                                    .withValues(alpha: 0.28)
+                                : AppTheme.primary.withValues(alpha: 0.10),
+                            width: 1.4,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: AppTheme.primary
-                                  .withValues(alpha: isDark ? 0.12 : 0.06),
-                              blurRadius: 24,
+                              color: isDark
+                                  ? const Color(0xFF7C3AED)
+                                      .withValues(alpha: 0.16)
+                                  : AppTheme.primary.withValues(alpha: 0.06),
+                              blurRadius: isDark ? 28 : 24,
                               offset: const Offset(0, 8),
                             ),
                             BoxShadow(
                               color: Colors.black
-                                  .withValues(alpha: isDark ? 0.2 : 0.04),
-                              blurRadius: 16,
-                              offset: const Offset(0, 4),
+                                  .withValues(alpha: isDark ? 0.45 : 0.04),
+                              blurRadius: isDark ? 20 : 16,
+                              offset: const Offset(0, 6),
                             ),
                           ],
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Badge + Price row
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 5),
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(colors: [
-                                      Color(0xFFff6b9d),
-                                      Color(0xFFff9a3c)
-                                    ]),
-                                    borderRadius: BorderRadius.circular(18),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: const Color(0xFFff6b9d)
-                                            .withValues(alpha: 0.3),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 3),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Text(
-                                    p.isAr
-                                        ? '🔥 اشتراك الكورس (6 أشهر)'
-                                        : '🔥 6-Month Course Plan',
-                                    style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w800,
-                                        fontFamily: 'Cairo'),
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 5),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.primary
-                                        .withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                        color: AppTheme.primary
-                                            .withValues(alpha: 0.25)),
-                                  ),
-                                  child: Text(
-                                    priceText,
-                                    style: TextStyle(
-                                      color: isDark
-                                          ? Colors.white
-                                          : AppTheme.primary,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w900,
-                                      fontFamily: 'Cairo',
+                            // Plan badge row (no price shown)
+                            SizedBox(
+                              width: double.infinity,
+                              child: Wrap(
+                                alignment: WrapAlignment.spaceBetween,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(colors: [
+                                        Color(0xFFff6b9d),
+                                        Color(0xFFff9a3c),
+                                      ]),
+                                      borderRadius: BorderRadius.circular(18),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: const Color(0xFFff6b9d)
+                                              .withValues(alpha: 0.3),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 3),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Text(
+                                      p.isAr
+                                          ? '🔥 اشتراك الكورس (6 أشهر)'
+                                          : '🔥 6-Month Course Plan',
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          fontFamily: 'Cairo'),
                                     ),
                                   ),
-                                ),
-                              ],
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 11, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? const Color(0xFF06B6D4)
+                                              .withValues(alpha: 0.14)
+                                          : AppTheme.primary
+                                              .withValues(alpha: 0.10),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: isDark
+                                            ? const Color(0xFF22D3EE)
+                                                .withValues(alpha: 0.34)
+                                            : AppTheme.primary
+                                                .withValues(alpha: 0.22),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.auto_awesome_rounded,
+                                          size: 13,
+                                          color: isDark
+                                              ? const Color(0xFF67E8F9)
+                                              : AppTheme.primary,
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Text(
+                                          p.isAr
+                                              ? 'وصول شامل وفوري'
+                                              : 'Instant Full Access',
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? const Color(0xFFE0F2FE)
+                                                : AppTheme.primary,
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.w800,
+                                            fontFamily: 'Cairo',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                             const SizedBox(height: 14),
                             Text(
@@ -571,8 +727,14 @@ class _PaymentScreenState extends State<PaymentScreen>
                               height: 1.5,
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(colors: [
-                                  AppTheme.primary.withValues(alpha: 0.3),
-                                  AppTheme.accent.withValues(alpha: 0.2),
+                                  (isDark
+                                          ? const Color(0xFF8B5CF6)
+                                          : AppTheme.primary)
+                                      .withValues(alpha: isDark ? 0.45 : 0.30),
+                                  (isDark
+                                          ? const Color(0xFF06B6D4)
+                                          : AppTheme.accent)
+                                      .withValues(alpha: isDark ? 0.32 : 0.20),
                                   Colors.transparent,
                                 ]),
                               ),
@@ -611,26 +773,53 @@ class _PaymentScreenState extends State<PaymentScreen>
                                 Icons.camera_alt_outlined
                               ),
                             ])
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 10),
+                                padding: isDark
+                                    ? const EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 10)
+                                    : EdgeInsets.zero,
+                                decoration: isDark
+                                    ? BoxDecoration(
+                                        color: Colors.white
+                                            .withValues(alpha: 0.035),
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.07),
+                                        ),
+                                      )
+                                    : null,
                                 child: Row(children: [
                                   Container(
-                                    width: 32,
-                                    height: 32,
+                                    width: 34,
+                                    height: 34,
                                     decoration: BoxDecoration(
-                                      gradient: AppTheme.primaryGrad,
+                                      gradient: isDark
+                                          ? const LinearGradient(
+                                              colors: [
+                                                Color(0xFF8B5CF6),
+                                                Color(0xFF06B6D4),
+                                              ],
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                            )
+                                          : AppTheme.primaryGrad,
                                       borderRadius: BorderRadius.circular(10),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: AppTheme.primary
-                                              .withValues(alpha: 0.25),
-                                          blurRadius: 6,
+                                          color: (isDark
+                                                  ? const Color(0xFF8B5CF6)
+                                                  : AppTheme.primary)
+                                              .withValues(
+                                                  alpha: isDark ? 0.35 : 0.25),
+                                          blurRadius: isDark ? 10 : 6,
                                           offset: const Offset(0, 2),
                                         ),
                                       ],
                                     ),
                                     child: Icon(f.$2,
-                                        size: 15, color: Colors.white),
+                                        size: 16, color: Colors.white),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
@@ -639,10 +828,9 @@ class _PaymentScreenState extends State<PaymentScreen>
                                       style: TextStyle(
                                         fontSize: 12.5,
                                         fontFamily: 'Cairo',
-                                        fontWeight: FontWeight.w600,
+                                        fontWeight: FontWeight.w700,
                                         color: isDark
-                                            ? Colors.white
-                                                .withValues(alpha: 0.9)
+                                            ? const Color(0xFFF1F5F9)
                                             : AppTheme.textPri,
                                       ),
                                     ),
@@ -655,13 +843,16 @@ class _PaymentScreenState extends State<PaymentScreen>
 
                       const SizedBox(height: 16),
 
-                      if (!_loading && _products.isEmpty && _isStoreSupported) ...[
+                      if (!_loading &&
+                          _products.isEmpty &&
+                          _isStoreSupported) ...[
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(14),
                           margin: const EdgeInsets.only(bottom: 16),
                           decoration: BoxDecoration(
-                            color: Colors.amber.withValues(alpha: isDark ? 0.14 : 0.10),
+                            color: Colors.amber
+                                .withValues(alpha: isDark ? 0.14 : 0.10),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
                               color: Colors.amber.withValues(alpha: 0.45),
@@ -683,7 +874,9 @@ class _PaymentScreenState extends State<PaymentScreen>
                                   style: TextStyle(
                                     fontFamily: 'Cairo',
                                     fontSize: 11.5,
-                                    color: isDark ? Colors.white : AppTheme.textPri,
+                                    color: isDark
+                                        ? Colors.white
+                                        : AppTheme.textPri,
                                   ),
                                 ),
                               ),
@@ -714,8 +907,8 @@ class _PaymentScreenState extends State<PaymentScreen>
                           gradient: LinearGradient(
                             colors: isDark
                                 ? [
-                                    AppTheme.primary.withValues(alpha: 0.10),
-                                    AppTheme.accent.withValues(alpha: 0.06),
+                                    const Color(0xFF0E2223),
+                                    const Color(0xFF10182C),
                                   ]
                                 : [
                                     AppTheme.primary.withValues(alpha: 0.05),
@@ -726,9 +919,10 @@ class _PaymentScreenState extends State<PaymentScreen>
                           ),
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(
-                            color: AppTheme.primary
-                                .withValues(alpha: isDark ? 0.15 : 0.08),
-                            width: 1.5,
+                            color: isDark
+                                ? AppTheme.success.withValues(alpha: 0.28)
+                                : AppTheme.primary.withValues(alpha: 0.08),
+                            width: 1.4,
                           ),
                         ),
                         child: Row(children: [
@@ -736,10 +930,12 @@ class _PaymentScreenState extends State<PaymentScreen>
                             width: 42,
                             height: 42,
                             decoration: BoxDecoration(
-                              color: AppTheme.success.withValues(alpha: 0.15),
+                              color: AppTheme.success
+                                  .withValues(alpha: isDark ? 0.18 : 0.15),
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
-                                color: AppTheme.success.withValues(alpha: 0.25),
+                                color: AppTheme.success
+                                    .withValues(alpha: isDark ? 0.34 : 0.25),
                               ),
                             ),
                             child: const Icon(Icons.verified_user_rounded,
@@ -764,9 +960,11 @@ class _PaymentScreenState extends State<PaymentScreen>
                                 const SizedBox(height: 2),
                                 Text(
                                   p.paySecure,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                       fontSize: 10.5,
-                                      color: AppTheme.textSec,
+                                      color: isDark
+                                          ? const Color(0xFF94A3B8)
+                                          : AppTheme.textSec,
                                       fontFamily: 'Cairo'),
                                 ),
                               ],
@@ -782,155 +980,225 @@ class _PaymentScreenState extends State<PaymentScreen>
             ),
           ),
           // ── Animated bottom CTA ──────────────────────────────────────────
-          SafeArea(
-            top: false,
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: _loading || _purchasing
-                      ? const Center(child: CircularProgressIndicator())
-                      : Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            ScaleTransition(
-                              scale: _pulseAnim,
-                              child: AnimatedPressable(
-                                onTap: _purchase,
-                                child: Container(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 16),
-                                  decoration: BoxDecoration(
-                                    gradient: AppTheme.primaryGrad,
-                                    borderRadius: BorderRadius.circular(20),
-                                    boxShadow: AppTheme.glowShadow,
-                                  ),
-                                  child: Center(
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(
-                                            Icons.workspace_premium_rounded,
-                                            color: Colors.white,
-                                            size: 20),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          '${p.subscribe} — $priceText',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w900,
-                                            fontFamily: 'Cairo',
+          Container(
+            decoration: isDark
+                ? BoxDecoration(
+                    color: const Color(0xFF0A0E1D).withValues(alpha: 0.94),
+                    border: Border(
+                      top: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.08),
+                      ),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        blurRadius: 24,
+                        offset: const Offset(0, -6),
+                      ),
+                    ],
+                  )
+                : null,
+            child: SafeArea(
+              top: false,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: _loading || _purchasing
+                        ? const Center(child: CircularProgressIndicator())
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ScaleTransition(
+                                scale: _pulseAnim,
+                                child: AnimatedPressable(
+                                  onTap: _purchase,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 16),
+                                    decoration: BoxDecoration(
+                                      gradient: isDark
+                                          ? const LinearGradient(
+                                              colors: [
+                                                Color(0xFF8B5CF6),
+                                                Color(0xFF6366F1),
+                                                Color(0xFF06B6D4),
+                                              ],
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                            )
+                                          : AppTheme.primaryGrad,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: isDark
+                                          ? Border.all(
+                                              color: Colors.white
+                                                  .withValues(alpha: 0.16),
+                                            )
+                                          : null,
+                                      boxShadow: isDark
+                                          ? [
+                                              BoxShadow(
+                                                color: const Color(0xFF7C3AED)
+                                                    .withValues(alpha: 0.36),
+                                                blurRadius: 22,
+                                                offset: const Offset(0, 6),
+                                              ),
+                                            ]
+                                          : AppTheme.glowShadow,
+                                    ),
+                                    child: Center(
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          const Icon(
+                                              Icons.workspace_premium_rounded,
+                                              color: Colors.white,
+                                              size: 20),
+                                          const SizedBox(width: 8),
+                                          Flexible(
+                                            child: Text(
+                                              p.subscribe,
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w900,
+                                                fontFamily: 'Cairo',
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              p.isAr
-                                  ? 'اشتراك كورس (6 أشهر) يتجدد تلقائياً ما لم يتم إلغاؤه قبل نهاية الفترة من إعدادات الحساب.'
-                                  : '6-month course subscription. Auto-renews unless canceled before the end of the period in Account Settings.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontFamily: 'Cairo',
-                                color: isDark
-                                    ? Colors.white54
-                                    : AppTheme.textSec,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            // ── Restore Purchases Button (Apple Guideline 3.1.1) ─
-                            TextButton.icon(
-                              onPressed:
-                                  _purchasing ? null : _restorePurchases,
-                              icon: Icon(
-                                Icons.restore_rounded,
-                                size: 16,
-                                color:
-                                    isDark ? Colors.white70 : AppTheme.textSec,
-                              ),
-                              label: Text(
+                              const SizedBox(height: 6),
+                              Text(
                                 p.isAr
-                                    ? 'استعادة المشتريات السابقة'
-                                    : 'Restore Purchases',
+                                    ? 'اشتراك كورس (6 أشهر) يتجدد تلقائياً ما لم يتم إلغاؤه قبل نهاية الفترة من إعدادات الحساب.'
+                                    : '6-month course subscription. Auto-renews unless canceled before the end of the period in Account Settings.',
+                                textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
+                                  fontSize: 10,
                                   fontFamily: 'Cairo',
                                   color: isDark
-                                      ? Colors.white70
+                                      ? const Color(0xFF94A3B8)
                                       : AppTheme.textSec,
                                 ),
                               ),
-                              style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 4),
+                              const SizedBox(height: 4),
+                              // ── Restore Purchases Button (Apple Guideline 3.1.1) ─
+                              TextButton.icon(
+                                onPressed:
+                                    _purchasing ? null : _restorePurchases,
+                                icon: Icon(
+                                  Icons.restore_rounded,
+                                  size: 16,
+                                  color: isDark
+                                      ? const Color(0xFFE2E8F0)
+                                      : AppTheme.textSec,
+                                ),
+                                label: Text(
+                                  p.isAr
+                                      ? 'استعادة المشتريات السابقة'
+                                      : 'Restore Purchases',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    fontFamily: 'Cairo',
+                                    color: isDark
+                                        ? const Color(0xFFE2E8F0)
+                                        : AppTheme.textSec,
+                                  ),
+                                ),
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 4),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            // ── Terms & Privacy links ─────────────────────────
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                GestureDetector(
-                                  onTap: () async {
-                                    final uri = Uri.parse(AppUrls.termsOfUse);
-                                    if (await canLaunchUrl(uri)) {
-                                      await launchUrl(uri,
-                                          mode: LaunchMode.externalApplication);
-                                    }
-                                  },
-                                  child: Text(
-                                    p.isAr ? 'شروط الاستخدام' : 'Terms of Use',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: AppTheme.primary
-                                          .withValues(alpha: 0.8),
-                                      decoration: TextDecoration.underline,
-                                      fontFamily: 'Cairo',
+                              const SizedBox(height: 4),
+                              // ── Terms & Privacy links ─────────────────────────
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 8,
+                                runSpacing: 4,
+                                children: [
+                                  GestureDetector(
+                                    onTap: () async {
+                                      final uri = Uri.parse(AppUrls.termsOfUse);
+                                      if (await canLaunchUrl(uri)) {
+                                        await launchUrl(uri,
+                                            mode:
+                                                LaunchMode.externalApplication);
+                                      }
+                                    },
+                                    child: Text(
+                                      p.isAr ? 'شروط الاستخدام' : 'Terms of Use',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark
+                                            ? const Color(0xFFA5B4FC)
+                                            : AppTheme.primary
+                                                .withValues(alpha: 0.8),
+                                        decoration: TextDecoration.underline,
+                                        decorationColor: isDark
+                                            ? const Color(0xFFA5B4FC)
+                                            : null,
+                                        fontFamily: 'Cairo',
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const Text('  •  ',
-                                    style: TextStyle(
-                                        fontSize: 11, color: Colors.grey)),
-                                GestureDetector(
-                                  onTap: () async {
-                                    final uri =
-                                        Uri.parse(AppUrls.privacyPolicy);
-                                    if (await canLaunchUrl(uri)) {
-                                      await launchUrl(uri,
-                                          mode: LaunchMode.externalApplication);
-                                    }
-                                  },
-                                  child: Text(
-                                    p.isAr
-                                        ? 'سياسة الخصوصية'
-                                        : 'Privacy Policy',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: AppTheme.primary
-                                          .withValues(alpha: 0.8),
-                                      decoration: TextDecoration.underline,
-                                      fontFamily: 'Cairo',
+                                  Text('•',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: isDark
+                                              ? const Color(0xFF64748B)
+                                              : Colors.grey)),
+                                  GestureDetector(
+                                    onTap: () async {
+                                      final uri =
+                                          Uri.parse(AppUrls.privacyPolicy);
+                                      if (await canLaunchUrl(uri)) {
+                                        await launchUrl(uri,
+                                            mode:
+                                                LaunchMode.externalApplication);
+                                      }
+                                    },
+                                    child: Text(
+                                      p.isAr
+                                          ? 'سياسة الخصوصية'
+                                          : 'Privacy Policy',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark
+                                            ? const Color(0xFFA5B4FC)
+                                            : AppTheme.primary
+                                                .withValues(alpha: 0.8),
+                                        decoration: TextDecoration.underline,
+                                        decorationColor: isDark
+                                            ? const Color(0xFFA5B4FC)
+                                            : null,
+                                        fontFamily: 'Cairo',
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+                                ],
+                              ),
+                            ],
+                          ),
+                  ),
                 ),
               ),
             ),
           ),
+        ],
+      ),
         ],
       ),
     );

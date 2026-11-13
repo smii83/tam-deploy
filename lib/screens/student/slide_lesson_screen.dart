@@ -17,8 +17,16 @@ import '../../widgets/slide_canvas.dart';
 class SlideLessonScreen extends StatefulWidget {
   final String pdfId;
   final String title;
+  final InteractiveLesson? initialLesson;
+  final bool autoStart;
 
-  const SlideLessonScreen({super.key, required this.pdfId, required this.title});
+  const SlideLessonScreen({
+    super.key,
+    required this.pdfId,
+    required this.title,
+    this.initialLesson,
+    this.autoStart = true,
+  });
 
   @override
   State<SlideLessonScreen> createState() => _SlideLessonScreenState();
@@ -50,7 +58,8 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
       _error = null;
     });
     try {
-      final lesson = await FirestoreDataService.getInteractiveLesson(widget.pdfId);
+      final lesson = widget.initialLesson ??
+          await FirestoreDataService.getInteractiveLesson(widget.pdfId);
       if (!mounted) return;
       final hasKamila =
           lesson != null && lesson.slides(InteractiveLesson.kamila).isNotEmpty;
@@ -77,7 +86,9 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
         _c = ctrl;
         _loading = false;
       });
-      await ctrl.start(); // the teacher starts explaining right away
+      if (widget.autoStart) {
+        await ctrl.start(); // the teacher starts explaining right away
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -149,7 +160,7 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
   Widget _centerMsg({bool showSpinner = false, required String msg, bool retry = false}) {
     return Column(
       children: [
-        _topBar(null),
+        _topBar(),
         Expanded(
           child: Center(
             child: Padding(
@@ -199,7 +210,7 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
         final landscape = size.width > size.height;
         return Column(
           children: [
-            _topBar(c),
+            _topBar(),
             Expanded(child: _stage(c, landscape)),
             _progressBar(c),
             _controls(c, landscape),
@@ -210,7 +221,7 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
   }
 
   // ── Top bar ────────────────────────────────────────────────────────────────
-  Widget _topBar(LessonPlayerController? c) {
+  Widget _topBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(6, 4, 6, 0),
       child: Row(
@@ -233,22 +244,6 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
               ),
             ),
           ),
-          if (c != null && c.hasBothVersions)
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                color: _chrome.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _versionBtn(c, InteractiveLesson.kamila, 'الشرح الكامل'),
-                  _versionBtn(c, InteractiveLesson.mukhtasar, 'الزبدة'),
-                ],
-              ),
-            ),
           IconButton(
             onPressed: () => setState(() => _dark = !_dark),
             icon: Icon(
@@ -258,29 +253,6 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
             tooltip: _dark ? 'الوضع الفاتح' : 'الوضع الغامق',
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _versionBtn(LessonPlayerController c, String v, String label) {
-    final active = c.version == v;
-    return GestureDetector(
-      onTap: () => c.switchVersion(v),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: active ? _pal.accent : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: active ? Colors.white : _chrome.withValues(alpha: 0.7),
-            fontFamily: 'Cairo',
-            fontSize: 10.5,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
       ),
     );
   }
