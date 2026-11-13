@@ -318,7 +318,11 @@ class _SlideLessonScreenState extends State<SlideLessonScreen>
             child: Stack(
               fit: StackFit.expand,
               children: [
-                SlideCanvas(slide: c.current, palette: _pal),
+                SlideCanvas(
+                  slide: c.current,
+                  palette: _pal,
+                  playNonce: c.playNonce,
+                ),
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 260),
                   child: c.interrupted

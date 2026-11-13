@@ -14,7 +14,7 @@ service cloud.firestore {
     function isAdmin() {
       return isAuth() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email in ['tam.app83@gmail.com', 'tm.app83@gmail.com', 'tamteach01@gmail.com', 'admin@tam.com']
+        request.auth.token.email in ['tam.app83@gmail.com', 'tm.app83@gmail.com', 'tamteach01@gmail.com', 'admin@tam.com', 'admin@eduspark.com']
       );
     }
 
@@ -71,8 +71,12 @@ service cloud.firestore {
                       && request.resource.data.firebase_uid == request.auth.uid
                       && request.resource.data.status == 'active'
                       && request.resource.data.plan in ['tam_6months_12kwd', 'tam_6months', 'tam_3months', 'tam_1month', 'tam_1year']
+                      && request.resource.data.transaction_id is string
+                      && request.resource.data.transaction_id.size() > 0
+                      && subId == request.resource.data.transaction_id
                       && request.resource.data.duration_days is int
-                      && request.resource.data.duration_days <= 365
+                      && request.resource.data.duration_days > 0
+                      && request.resource.data.duration_days <= 180
                       && request.resource.data.created == request.time
                       && request.resource.data.keys().hasOnly([
                            'user_email', 'firebase_uid', 'plan', 'product_id', 'platform',

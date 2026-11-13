@@ -45,7 +45,8 @@ class _AITutorScreenState extends State<AITutorScreen> {
     final p = Provider.of<AppProvider>(context, listen: false);
     final sub = widget.subject['en']?.toLowerCase() ?? '';
     final isAr = p.isAr;
-    final namePart = _firstName.isNotEmpty ? ' يا $_firstName' : '';
+    final arNamePart = _firstName.isNotEmpty ? ' يا $_firstName' : '';
+    final enNamePart = _firstName.isNotEmpty ? ', $_firstName' : '';
     final dialectLabel = p.selectedCountry == 'sa'
         ? 'بلهجتنا السعودية الحلوة'
         : p.selectedCountry == 'ae'
@@ -55,16 +56,16 @@ class _AITutorScreenState extends State<AITutorScreen> {
     String welcomeText = '';
     if (sub.contains('math') || sub.contains('رياضيات')) {
       welcomeText = isAr
-          ? 'هلا والله$namePart، أنا مدرس الرياضيات الخاص فيك في منصة تَم. شلون أقدر أساعدك اليوم في الأرقام والقوانين؟'
-          : 'Welcome$namePart! I am your Math teacher. How can I help you today?';
+          ? 'هلا والله$arNamePart، أنا مدرس الرياضيات الخاص فيك في منصة تَم. شلون أقدر أساعدك اليوم في الأرقام والقوانين؟'
+          : 'Welcome$enNamePart! I am your Math teacher. How can I help you today?';
     } else if (sub.contains('english') || sub.contains('إنجليزي')) {
       welcomeText = isAr
-          ? 'Welcome$namePart! أنا معلمتك للغة الإنجليزية، وراح نتقن اللغة مع بعض $dialectLabel، شنو ودك نتعلم اليوم؟'
-          : 'Welcome$namePart! I am your English teacher. Let\'s master the language together!';
+          ? 'Welcome$arNamePart! أنا معلمتك للغة الإنجليزية، وراح نتقن اللغة مع بعض $dialectLabel، شنو ودك نتعلم اليوم؟'
+          : 'Welcome$enNamePart! I am your English teacher. Let\'s master the language together!';
     } else {
       welcomeText = isAr
-          ? 'يا هلا فيك$namePart، أنا مدرسك الذكي لمادة $_subName. أنا موجود هنا عشان أسهل عليك المادة وأجاوب على كل أسئلتك.'
-          : 'Hello$namePart! I am your smart tutor for $_subName. I am here to help you!';
+          ? 'يا هلا فيك$arNamePart، أنا مدرسك الذكي لمادة $_subName. أنا موجود هنا عشان أسهل عليك المادة وأجاوب على كل أسئلتك.'
+          : 'Hello$enNamePart! I am your smart tutor for $_subName. I am here to help you!';
     }
 
     setState(() {
@@ -86,15 +87,22 @@ class _AITutorScreenState extends State<AITutorScreen> {
       _loading = true;
     });
     _scrollDown();
-    // Send full conversation history (user + assistant) for proper context
-    final countryCode = Provider.of<AppProvider>(context, listen: false).selectedCountry;
+    // Cap history window to the last 16 prior turns to keep prompts compact.
+    final priorHistory = _history.length > 1
+        ? _history.sublist(0, _history.length - 1)
+        : <Map<String, String>>[];
+    final trimmedHistory = priorHistory.length > 16
+        ? priorHistory.sublist(priorHistory.length - 16)
+        : priorHistory;
+    final p = Provider.of<AppProvider>(context, listen: false);
     final reply = await AIService.chat(
       subject: _subName,
       grade: widget.grade,
-      history: List.from(_history)..removeLast(),
+      history: trimmedHistory,
       message: text,
       userName: _firstName,
-      country: countryCode,
+      country: p.selectedCountry,
+      isAr: p.isAr,
     );
     if (!mounted) return;
     setState(() {
@@ -102,6 +110,46 @@ class _AITutorScreenState extends State<AITutorScreen> {
       _loading = false;
     });
     _scrollDown();
+  }
+
+  Future<void> _confirmClearHistory() async {
+    final p = context.read<AppProvider>();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          p.isAr ? 'مسح المحادثة' : 'Clear Conversation',
+          style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w800),
+        ),
+        content: Text(
+          p.isAr
+              ? 'هل تريد مسح جميع رسائل هذه المحادثة؟'
+              : 'Do you want to clear all messages in this chat?',
+          style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(p.cancel, style: const TextStyle(fontFamily: 'Cairo')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              p.isAr ? 'مسح' : 'Clear',
+              style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      setState(() => _history.clear());
+    }
   }
 
   void _scrollDown() => WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -300,7 +348,7 @@ class _AITutorScreenState extends State<AITutorScreen> {
                   if (_history.isNotEmpty) ...[
                     const SizedBox(width: 8),
                     AnimatedPressable(
-                      onTap: () => setState(() => _history.clear()),
+                      onTap: _confirmClearHistory,
                       child: Container(
                         width: 38,
                         height: 38,

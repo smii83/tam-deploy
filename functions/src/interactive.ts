@@ -19,10 +19,11 @@
 //   lesson_audio/{pdfId}/{hash}.mp3
 // ─────────────────────────────────────────────────────────────────────────────
 import * as admin from "firebase-admin";
-import { onCall, HttpsError, CallableRequest } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { defineSecret } from "firebase-functions/params";
 import * as crypto from "crypto";
+import { assertActiveSubscriber, requireAdmin } from "./auth";
 
 // @breezystack/lamejs is ESM-only; tsc (CommonJS) would rewrite import() into
 // require(), so we keep a native dynamic import.
@@ -38,13 +39,6 @@ async function getLame() {
 
 const GEMINI_SECRET = defineSecret("GEMINI_API_KEY");
 const REGION = "me-central1";
-
-const ADMIN_EMAILS = [
-  "tam.app83@gmail.com",
-  "tm.app83@gmail.com",
-  "tamteach01@gmail.com",
-  "admin@tam.com",
-];
 
 const TEXT_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"];
 const DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts";
@@ -103,21 +97,6 @@ type Segment = { narration?: string | null; audio?: AudioRef | null };
 // ═════════════════════════════════════════════════════════════════════════════
 // Helpers
 // ═════════════════════════════════════════════════════════════════════════════
-function requireAuth(request: CallableRequest): string {
-  if (!request.auth?.uid) {
-    throw new HttpsError("unauthenticated", "يجب تسجيل الدخول أولاً.");
-  }
-  return request.auth.uid;
-}
-
-function requireAdmin(request: CallableRequest): void {
-  requireAuth(request);
-  const email = String(request.auth?.token?.email ?? "").toLowerCase().trim();
-  if (!ADMIN_EMAILS.includes(email)) {
-    throw new HttpsError("permission-denied", "هذه العملية مخصصة للمشرفين فقط.");
-  }
-}
-
 function sha1(s: string): string {
   return crypto.createHash("sha1").update(s).digest("hex");
 }
@@ -153,7 +132,7 @@ function dialectFor(country: string): string {
 }
 
 function teacherPersonality(country: string): string {
-  const base = `أنت مدرس خليجي محترف بشوش يعطي درساً خصوصياً لطالب كأنك جاسه في البيت.
+  const base = `أنت مدرس خليجي محترف بشوش يعطي درساً خصوصياً لطالب كأنك جالس في البيت.
 - تحكي بـ${dialectFor(country)} مريح وطبيعي، مو بأسلوب رسمي.
 - تبدأ كل فكرة جديدة بعبارة تشويقية مثل: "اسمع كيف"، "الحين خل أوضح"، "هذي هي الحلوة"، "والله سؤال وايد مهم".
 - تضرب أمثلة من الحياة اليومية الخليجية.
@@ -583,7 +562,7 @@ function totalDuration(c: LessonContent, version: "mukhtasar" | "kamila"): numbe
 export const generateInteractiveLesson = onCall(
   { secrets: [GEMINI_SECRET], region: REGION, timeoutSeconds: 540, memory: "1GiB" },
   async (request) => {
-    requireAdmin(request);
+    await requireAdmin(request);
     const startedAt = Date.now();
     const { pdfId, mode } = request.data as { pdfId?: string; mode?: "full" | "audio" };
     if (!pdfId || typeof pdfId !== "string") {
@@ -716,7 +695,7 @@ async function checkAskLimit(uid: string): Promise<void> {
 export const lessonAsk = onCall(
   { secrets: [GEMINI_SECRET], region: REGION, timeoutSeconds: 60, memory: "256MiB" },
   async (request) => {
-    const uid = requireAuth(request);
+    const uid = await assertActiveSubscriber(request);
     const d = request.data as {
       pdfId?: string;
       heading?: string;
@@ -737,9 +716,10 @@ export const lessonAsk = onCall(
     const cacheKey = sha1(`${pdfId}|${slideKey}|${normalizeAr(question)}`);
     const cacheRef = db().collection("lesson_qa_cache").doc(cacheKey);
     const cached = await cacheRef.get();
-    if (cached.exists && typeof cached.data()?.answer === "string") {
+    const cachedAnswer = cached.data()?.answer;
+    if (cached.exists && typeof cachedAnswer === "string") {
       cacheRef.update({ hits: admin.firestore.FieldValue.increment(1) }).catch(() => undefined);
-      return { answer: cached.data()!.answer as string, cached: true };
+      return { answer: cachedAnswer, cached: true };
     }
 
     // 2) Not cached → costs money → rate limit

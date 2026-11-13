@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/app_provider.dart';
 import '../../services/firestore_data_service.dart';
+import '../../services/iap_service.dart';
 import '../../utils/app_theme.dart';
 import '../../widgets/animated_pressable.dart';
 import 'payment_screen.dart';
@@ -108,13 +109,16 @@ class _GradeSelectScreenState extends State<GradeSelectScreen>
       return;
     }
 
-    await FirestoreDataService.updateUserGrade(
-      uid,
+    final p = context.read<AppProvider>();
+    await p.updateGrade(
       _selectedGradeNum!,
       _selectedSection,
       _selectedCountryCode,
     );
     final subscribed = await FirestoreDataService.isSubscribed(uid);
+    if (!mounted) return;
+    p.setSubscribed(subscribed);
+    await IapService.instance.cacheSubscriptionStatus(uid, subscribed);
     if (!mounted) return;
     setState(() => _saving = false);
 

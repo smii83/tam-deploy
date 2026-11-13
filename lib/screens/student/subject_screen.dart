@@ -29,6 +29,7 @@ class SubjectScreen extends StatefulWidget {
 
 class _SubjectScreenState extends State<SubjectScreen> {
   String _subjectId = '';
+  Future<void>? _subjectIdFuture;
 
   @override
   void initState() {
@@ -40,16 +41,32 @@ class _SubjectScreenState extends State<SubjectScreen> {
     } else if (mapId.isNotEmpty) {
       _subjectId = mapId;
     } else {
-      _fetchSubjectId();
+      _subjectIdFuture = _fetchSubjectId();
     }
   }
 
+  Future<String> _ensureSubjectId() async {
+    if (_subjectId.isNotEmpty) return _subjectId;
+    _subjectIdFuture ??= _fetchSubjectId();
+    await _subjectIdFuture;
+    return _subjectId;
+  }
+
+  Future<void> _openWithSubjectId(Widget Function(String sid) builder) async {
+    final sid = await _ensureSubjectId();
+    if (!mounted) return;
+    Navigator.push(context, _route(builder(sid)));
+  }
+
   Future<void> _fetchSubjectId() async {
-    // Fallback: Try to find subject by name from Firestore
+    // Fallback: Try to find subject by name from Firestore for user's country
     try {
-      final grades = await FirestoreDataService.getGrades();
+      final country = mounted
+          ? context.read<AppProvider>().selectedCountry
+          : 'kw';
+      final grades = await FirestoreDataService.getGrades(country);
       for (final g in grades) {
-        if (g['grade_number'] == widget.grade) {
+        if ((g['grade_number'] as num?)?.toInt() == widget.grade) {
           final subs = await FirestoreDataService.getSubjectsByGradeId(g['id']);
           for (final s in subs) {
             if ((s['name_ar'] as String? ?? '') == widget.subject['ar'] ||
@@ -115,13 +132,12 @@ class _SubjectScreenState extends State<SubjectScreen> {
                     tintColor: tintColor,
                     borderColor: borderColor,
                     isDark: isDark,
-                    onTap: () => Navigator.push(
-                      context,
-                      _route(LessonsScreen(
-                        subjectId: _subjectId,
+                    onTap: () => _openWithSubjectId(
+                      (sid) => LessonsScreen(
+                        subjectId: sid,
                         subject: widget.subject,
                         grade: widget.grade,
-                      )),
+                      ),
                     ),
                   ),
                   right: _SectionCard(
@@ -132,13 +148,12 @@ class _SubjectScreenState extends State<SubjectScreen> {
                     tintColor: tintColor,
                     borderColor: borderColor,
                     isDark: isDark,
-                    onTap: () => Navigator.push(
-                      context,
-                      _route(PDFsScreen(
-                        subjectId: _subjectId,
+                    onTap: () => _openWithSubjectId(
+                      (sid) => PDFsScreen(
+                        subjectId: sid,
                         subject: widget.subject,
                         grade: widget.grade,
-                      )),
+                      ),
                     ),
                   ),
                 ),
@@ -154,13 +169,12 @@ class _SubjectScreenState extends State<SubjectScreen> {
                     tintColor: tintColor,
                     borderColor: borderColor,
                     isDark: isDark,
-                    onTap: () => Navigator.push(
-                      context,
-                      _route(ExamReviewScreen(
-                        subjectId: _subjectId,
+                    onTap: () => _openWithSubjectId(
+                      (sid) => ExamReviewScreen(
+                        subjectId: sid,
                         subject: widget.subject,
                         grade: widget.grade,
-                      )),
+                      ),
                     ),
                   ),
                   right: _SectionCard(
@@ -171,10 +185,12 @@ class _SubjectScreenState extends State<SubjectScreen> {
                     tintColor: tintColor,
                     borderColor: borderColor,
                     isDark: isDark,
-                    onTap: () => Navigator.push(
-                      context,
-                      _route(QuizScreen(
-                          subject: widget.subject, grade: widget.grade)),
+                    onTap: () => _openWithSubjectId(
+                      (sid) => QuizScreen(
+                        subjectId: sid,
+                        subject: widget.subject,
+                        grade: widget.grade,
+                      ),
                     ),
                   ),
                 ),
@@ -411,62 +427,55 @@ class _SectionCard extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 120),
-        height: 150,
+        constraints: const BoxConstraints(minHeight: 150),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF1E1E2C) : Colors.white,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: borderColor, width: 1.2),
         ),
-        child: Stack(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Emoji icon
-            PositionedDirectional(
-              top: 14,
-              start: 14,
-              child: Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Center(
-                  child: Text(emoji, style: const TextStyle(fontSize: 20)),
-                ),
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Text(emoji, style: const TextStyle(fontSize: 20)),
               ),
             ),
-            // Text at bottom
-            Positioned(
-              bottom: 14,
-              left: 14,
-              right: 14,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    title,
-                    textAlign: TextAlign.start,
-                    style: TextStyle(
-                      color: isDark ? Colors.white : const Color(0xFF1A1A2E),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      fontFamily: 'Cairo',
-                    ),
+            const SizedBox(height: 18),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  textAlign: TextAlign.start,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    fontFamily: 'Cairo',
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    textAlign: TextAlign.start,
-                    style: TextStyle(
-                      color: accentColor.withValues(alpha: 0.85),
-                      fontSize: 9.5,
-                      fontFamily: 'Cairo',
-                      fontWeight: FontWeight.w500,
-                    ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  textAlign: TextAlign.start,
+                  style: TextStyle(
+                    color: accentColor.withValues(alpha: 0.85),
+                    fontSize: 9.5,
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.w500,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ],
         ),

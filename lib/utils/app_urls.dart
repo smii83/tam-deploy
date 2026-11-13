@@ -20,8 +20,8 @@ class AppUrls {
   static const String termsOfUse    = '$_legalBase/terms.html';
 
   // ── Stores ──────────────────────────────────────────────────
-  /// حدّث هذا بعد نشر التطبيق على App Store
-  static const String appStore   = 'https://apps.apple.com/app/id0000000000';
+  /// رابط التطبيق الرسمي على App Store
+  static const String appStore   = 'https://apps.apple.com/app/id6818789399';
 
   /// حدّث هذا بعد نشر التطبيق على Google Play
   static const String googlePlay = 'https://play.google.com/store/apps/details?id=com.tam.app';

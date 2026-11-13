@@ -127,15 +127,12 @@ class _LessonsScreenState extends State<LessonsScreen> {
 
   /// Returns true if the lesson was added within the last 7 days
   bool _isNew(Map<String, dynamic> lesson) {
-    try {
-      final createdStr = lesson['created'] as String?;
-      if (createdStr == null) return false;
-      final created = DateTime.tryParse(createdStr);
-      if (created == null) return false;
-      return DateTime.now().difference(created).inDays < 7;
-    } catch (_) {
-      return false;
-    }
+    final millis = FirestoreDataService.parseTimestampMillis(
+      lesson['created'] ?? lesson['created_at'],
+    );
+    if (millis <= 0) return false;
+    final created = DateTime.fromMillisecondsSinceEpoch(millis);
+    return DateTime.now().difference(created).inDays < 7;
   }
 
   @override

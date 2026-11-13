@@ -106,21 +106,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
       grade: _grade,
       section: (_section.isNotEmpty) ? _section : null,
       country: _country,
+      lang: p.language,
     );
     if (!mounted) return;
     setState(() => _loading = false);
     if (err != null) {
       setState(() => _error = err);
     } else {
-      final data = await context.read<AuthService>().getUserData();
-      if (mounted) {
-        final p = context.read<AppProvider>();
-        p.userData = data;
-        await p.setCountry(_country);
-        if (!mounted) return;
-        Navigator.pushReplacement(
-            context, MaterialPageRoute(builder: (_) => const PaymentScreen()));
-      }
+      await p.setCountry(_country);
+      await p.loadUserData();
+      if (!mounted) return;
+      Navigator.pushReplacement(
+          context, MaterialPageRoute(builder: (_) => const PaymentScreen()));
     }
   }
 
@@ -585,45 +582,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   List<DropdownMenuItem<String>> _buildGradeItems(AppProvider p) {
-    if (_gradesList.isEmpty) {
-      List<DropdownMenuItem<String>> items = [];
-      for (int g = 6; g <= 9; g++) {
-        items.add(DropdownMenuItem(
-            value: '$g',
-            child: Text(p.isAr ? 'الصف $g' : 'Grade $g',
-                style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
-      }
-      items.add(DropdownMenuItem(
-          value: '10',
-          child: Text(p.isAr ? 'الصف العاشر (عام)' : 'Grade 10 (General)',
-              style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
-      items.add(DropdownMenuItem(
-          value: '10_tracks',
-          child: Text(
-              p.isAr
-                  ? 'الصف العاشر — نظام المسارات (2026)'
-                  : 'Grade 10 — Tracks (2026)',
-              style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
-      items.add(DropdownMenuItem(
-          value: '11_scientific',
-          child: Text(p.isAr ? 'الصف 11 علمي' : 'Grade 11 (Science)',
-              style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
-      items.add(DropdownMenuItem(
-          value: '11_literary',
-          child: Text(p.isAr ? 'الصف 11 أدبي' : 'Grade 11 (Literary)',
-              style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
-      items.add(DropdownMenuItem(
-          value: '12_scientific',
-          child: Text(p.isAr ? 'الصف 12 علمي' : 'Grade 12 (Science)',
-              style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
-      items.add(DropdownMenuItem(
-          value: '12_literary',
-          child: Text(p.isAr ? 'الصف 12 أدبي' : 'Grade 12 (Literary)',
-              style: const TextStyle(fontFamily: 'Cairo', fontSize: 13))));
-      return items;
-    }
+    final grades = _gradesList.isNotEmpty
+        ? _gradesList
+        : FirestoreDataService.getStaticGradesForCountry(_country)
+            .where((g) => g['is_visible'] != false)
+            .toList();
 
-    return _gradesList.map((g) {
+    return grades.map((g) {
       final sec = g['section'] as String? ?? '';
       final numVal = (g['grade_number'] as num).toInt();
       final val = sec.isNotEmpty ? '${numVal}_$sec' : '$numVal';

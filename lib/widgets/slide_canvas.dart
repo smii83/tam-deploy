@@ -52,8 +52,14 @@ class SlidePalette {
 class SlideCanvas extends StatelessWidget {
   final LessonSlide slide;
   final SlidePalette palette;
+  final int playNonce;
 
-  const SlideCanvas({super.key, required this.slide, required this.palette});
+  const SlideCanvas({
+    super.key,
+    required this.slide,
+    required this.palette,
+    this.playNonce = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +94,7 @@ class SlideCanvas extends StatelessWidget {
                 transitionBuilder: (child, anim) =>
                     FadeTransition(opacity: anim, child: child),
                 child: _SlideBody(
-                  key: ValueKey(identityHashCode(slide)),
+                  key: ValueKey('${identityHashCode(slide)}_$playNonce'),
                   slide: slide,
                   palette: palette,
                   scale: scale,

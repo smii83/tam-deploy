@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'firestore_data_service.dart';
 import '../utils/app_theme.dart';
@@ -18,15 +19,14 @@ class AppProvider extends ChangeNotifier {
   SharedPreferences? _prefs;
   Future<SharedPreferences> get _p async => _prefs ??= await SharedPreferences.getInstance();
 
-  /// Subjects cache timestamp — skip network refresh if < 5 minutes old
-  DateTime? _subjectsCachedAt;
-
   /// Cached user name/email/country — available immediately from SharedPreferences
   String _cachedName = '';
   String _cachedEmail = '';
+  bool _isSubscribed = false;
   String get cachedName => _cachedName;
   String get cachedEmail => _cachedEmail;
   String get selectedCountry => _selectedCountry;
+  bool get isSubscribed => _isSubscribed;
 
   /// Whether user data has been loaded at least once
   bool _userLoaded = false;
@@ -107,10 +107,12 @@ class AppProvider extends ChangeNotifier {
     _language = lang;
     final p = await _p;
     await p.setString('lang', lang);
-    // Also update Firestore if user is logged in
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid != null) {
-      FirestoreDataService.updateUserLang(uid, lang);
+    // Also update Firestore if Firebase is initialized and user is logged in
+    if (Firebase.apps.isNotEmpty) {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        FirestoreDataService.updateUserLang(uid, lang);
+      }
     }
     notifyListeners();
   }
@@ -142,7 +144,16 @@ class AppProvider extends ChangeNotifier {
         if (fetchedEmail.isNotEmpty) await p.setString('cached_email', fetchedEmail);
       } catch (_) {}
 
-      // Sync language from Firestore user record
+      // Sync country & language from Firestore user record
+      final pbCountry = (data['country'] as String?)?.trim() ?? '';
+      if (pbCountry.isNotEmpty && pbCountry != _selectedCountry) {
+        _selectedCountry = pbCountry;
+        try {
+          final p = await _p;
+          await p.setString('country', _selectedCountry);
+        } catch (_) {}
+      }
+
       final pbLang = data['lang'] as String?;
       if (pbLang != null && pbLang.isNotEmpty && pbLang != _language) {
         _language = pbLang;
@@ -200,50 +211,63 @@ class AppProvider extends ChangeNotifier {
           })
           .toList();
     }
-    // Update cache timestamp and persist to SharedPreferences
-    _subjectsCachedAt = DateTime.now();
+    // Persist to SharedPreferences
     await _cacheSubjects();
   }
 
-  /// Refresh curriculum subjects from Firestore.
-  /// Skips network call if cache is less than 5 minutes old.
-  Future<void> refreshSubjects({bool force = false}) async {
-    if (!force && _subjectsCachedAt != null) {
-      final age = DateTime.now().difference(_subjectsCachedAt!);
-      if (age.inMinutes < 5) return; // Cache still fresh
-    }
-    final grade = (userData?['grade'] as num?)?.toInt() ?? 12;
-    final section = userData?['section'] as String? ?? 'scientific';
-    await _loadCurriculumFromFirestore(grade, section);
+  /// Update cached subscription flag after purchase, restore, or splash sync.
+  void setSubscribed(bool value) {
+    if (_isSubscribed == value) return;
+    _isSubscribed = value;
     notifyListeners();
   }
 
   /// Clear all user data on logout — prevents stale data from leaking between sessions
   Future<void> clearUserData() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
     userData = null;
     curriculumSubjects = null;
     _userLoaded = false;
+    _isSubscribed = false;
     _cachedName = '';
     _cachedEmail = '';
-    _subjectsCachedAt = null;
     // Also clear caches so the next user gets fresh data
     try {
       final p = await _p;
       await p.remove('cached_subjects');
       await p.remove('cached_name');
       await p.remove('cached_email');
+      if (uid != null && uid.isNotEmpty) {
+        await p.remove('is_subscribed_$uid');
+      }
     } catch (_) {}
     notifyListeners();
   }
 
-  /// Update grade in Firestore and refresh subjects
-  Future<void> updateGrade(int grade, [String? section]) async {
+  /// Update grade (and optionally section & country) in Firestore and refresh subjects
+  Future<void> updateGrade(int grade, [String? section, String? country]) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    await FirestoreDataService.updateUserGrade(uid, grade, section);
+    final targetCountry = (country != null && country.isNotEmpty)
+        ? country
+        : _selectedCountry;
+    await FirestoreDataService.updateUserGrade(
+      uid,
+      grade,
+      section,
+      targetCountry,
+    );
+    if (targetCountry != _selectedCountry) {
+      _selectedCountry = targetCountry;
+      try {
+        final p = await _p;
+        await p.setString('country', targetCountry);
+      } catch (_) {}
+    }
     if (userData != null) {
       userData!['grade'] = grade;
       if (section != null) userData!['section'] = section;
+      userData!['country'] = targetCountry;
     }
     await _loadCurriculumFromFirestore(
       grade,
@@ -309,7 +333,7 @@ class AppProvider extends ChangeNotifier {
   String get account       => isAr ? 'الحساب' : 'Account';
   String get appearance    => isAr ? 'المظهر' : 'Appearance';
   String get about         => isAr ? 'عن التطبيق' : 'About';
-  String get version       => isAr ? 'الإصدار 1.0.0' : 'Version 1.0.0';
+  String get version       => isAr ? 'الإصدار 1.0.7' : 'Version 1.0.7';
   String get greetingMorn  => isAr ? 'صباح الخير 👋' : 'Good morning 👋';
   String get greetingAft   => isAr ? 'مساء الخير ☀️' : 'Good afternoon ☀️';
   String get greetingEve   => isAr ? 'مساء النور 🌙' : 'Good evening 🌙';

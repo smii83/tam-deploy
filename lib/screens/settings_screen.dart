@@ -1,14 +1,13 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import '../services/app_provider.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_data_service.dart';
+import '../services/iap_service.dart';
 import '../utils/app_theme.dart';
 import '../utils/app_urls.dart';
 import 'auth/login_screen.dart';
@@ -25,7 +24,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _subscribed = false;
   bool _restoring = false;
   bool _showPwdForm = false, _savingPwd = false;
-  StreamSubscription<List<PurchaseDetails>>? _restoreSub;
+  StreamSubscription<IapPurchaseEvent>? _restoreSub;
   final _opCtrl = TextEditingController();
   final _npCtrl = TextEditingController();
   final _cpCtrl = TextEditingController();
@@ -48,9 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _restorePurchasesFromSettings(AppProvider p) async {
     final isAr = p.isAr;
-    if (kIsWeb ||
-        (defaultTargetPlatform != TargetPlatform.iOS &&
-            defaultTargetPlatform != TargetPlatform.android)) {
+    if (!IapService.instance.isStoreSupported) {
       _snack(isAr
           ? 'ميزة استعادة المشتريات متاحة فقط عبر تطبيق iOS أو Android الرسمي'
           : 'Restore Purchases is only available on the official iOS or Android app');
@@ -62,34 +59,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ? 'جاري التحقق من المشتريات السابقة واستعادتها...'
         : 'Checking and restoring previous purchases...');
 
+    IapService.instance.ensureListening(
+      onSubscriptionActivated: () {
+        if (mounted) {
+          context.read<AppProvider>().setSubscribed(true);
+        }
+      },
+    );
+
     bool restoredAny = false;
     await _restoreSub?.cancel();
-    _restoreSub = InAppPurchase.instance.purchaseStream.listen((purchases) async {
-      for (final item in purchases) {
-        if (item.status == PurchaseStatus.restored ||
-            item.status == PurchaseStatus.purchased) {
-          final ok = await _activateRestoredPurchase(item);
-          if (ok && item.pendingCompletePurchase) {
-            await InAppPurchase.instance.completePurchase(item);
-          }
-          if (ok && !restoredAny) {
+    _restoreSub = IapService.instance.events.listen((event) {
+      if (!mounted) return;
+      switch (event.status) {
+        case IapEventStatus.activated:
+          if (!restoredAny) {
             restoredAny = true;
-            if (mounted) {
-              setState(() {
-                _subscribed = true;
-                _restoring = false;
-              });
-              _snack(isAr
-                  ? '✅ تم استعادة اشتراكك وتفعيله بنجاح!'
-                  : '✅ Your subscription has been restored and activated!');
-            }
+            p.setSubscribed(true);
+            setState(() {
+              _subscribed = true;
+              _restoring = false;
+            });
+            _snack(isAr
+                ? '✅ تم استعادة اشتراكك وتفعيله بنجاح!'
+                : '✅ Your subscription has been restored and activated!');
           }
-        } else if (item.status == PurchaseStatus.error ||
-            item.status == PurchaseStatus.canceled) {
-          if (item.pendingCompletePurchase) {
-            await InAppPurchase.instance.completePurchase(item);
-          }
-        }
+          break;
+        case IapEventStatus.activationFailed:
+          setState(() => _restoring = false);
+          _snack(isAr
+              ? 'تم العثور على الاشتراك لكن تعذّر التفعيل الآن. حاول لاحقاً.'
+              : 'Purchase found, but activation could not complete right now.');
+          break;
+        case IapEventStatus.error:
+          setState(() => _restoring = false);
+          _snack(event.errorMessage?.isNotEmpty == true
+              ? event.errorMessage!
+              : (isAr
+                  ? 'تعذر استعادة المشتريات حالياً'
+                  : 'Could not restore purchases'));
+          break;
+        case IapEventStatus.canceled:
+          setState(() => _restoring = false);
+          break;
+        case IapEventStatus.pending:
+          break;
       }
     });
 
@@ -109,53 +123,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ? 'تعذر استعادة المشتريات حالياً'
             : 'Could not restore purchases');
       }
-    }
-  }
-
-  Future<bool> _activateRestoredPurchase(PurchaseDetails p) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return false;
-    final txId = p.purchaseID?.trim() ?? '';
-    final receipt = p.verificationData.serverVerificationData;
-    final productId = p.productID.isNotEmpty ? p.productID : 'tam_6months_12kwd';
-    final platform =
-        defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
-    final txDateMs = int.tryParse(p.transactionDate ?? '');
-    final effectiveTxId = txId.isNotEmpty
-        ? txId
-        : (p.transactionDate != null
-            ? 'tx_${user.uid}_${p.transactionDate}'
-            : '');
-
-    if (effectiveTxId.isNotEmpty) {
-      try {
-        final functions = FirebaseFunctions.instanceFor(region: 'me-central1');
-        await functions
-            .httpsCallable('activateSubscription')
-            .call({
-              'productId': productId,
-              'platform': platform,
-              'transactionId': effectiveTxId,
-              'receiptData': receipt,
-              'userEmail': user.email ?? '',
-              if (txDateMs != null) 'transactionDateMs': txDateMs,
-            })
-            .timeout(const Duration(seconds: 12));
-        return true;
-      } catch (e) {
-        debugPrint('Settings restore CF fallback: $e');
-      }
-    }
-    try {
-      return await FirestoreDataService.activateSubscription(
-        firebaseUid: user.uid,
-        userEmail: user.email ?? '',
-        plan: productId,
-        transactionId: effectiveTxId,
-        platform: platform,
-      );
-    } catch (_) {
-      return false;
     }
   }
 
@@ -205,6 +172,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (uid != null) {
       final isSub = await FirestoreDataService.isSubscribed(uid);
       if (!mounted) return;
+      p.setSubscribed(isSub);
+      await IapService.instance.cacheSubscriptionStatus(uid, isSub);
+      if (!mounted) return;
       setState(() {
         _subscribed = isSub;
       });
@@ -225,10 +195,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final err = await context.read<AuthService>().changePassword(
           oldPassword: _opCtrl.text,
           newPassword: _npCtrl.text,
+          lang: p.language,
         );
+    if (!mounted) return;
     setState(() {
       _savingPwd = false;
-      _showPwdForm = false;
+      if (err == null) _showPwdForm = false;
     });
     _snack(err != null ? '${p.pwdError}: $err ❌' : p.pwdChanged);
     if (err == null) {
@@ -258,10 +230,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _showDeleteAccountDialog(AppProvider p) async {
     final pwdCtrl = TextEditingController();
     bool deleting = false;
+    String? dialogErr;
     final user = FirebaseAuth.instance.currentUser;
     final isPasswordUser = user?.providerData.any((prov) => prov.providerId == 'password') ?? false;
 
-    await showDialog(
+    await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
@@ -308,6 +281,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               if (isPasswordUser) ...[
                 TextField(
                   controller: pwdCtrl,
+                  enabled: !deleting,
                   obscureText: true,
                   textDirection: TextDirection.ltr,
                   decoration: InputDecoration(
@@ -340,11 +314,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ],
+              if (dialogErr != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  dialogErr!,
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    fontFamily: 'Cairo',
+                  ),
+                ),
+              ],
             ],
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx),
+              onPressed: deleting ? null : () => Navigator.of(ctx).pop(),
               child: Text(p.isAr ? 'إلغاء' : 'Cancel'),
             ),
             if (deleting)
@@ -360,27 +346,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
                 onPressed: () async {
-                  if (isPasswordUser && pwdCtrl.text.isEmpty) return;
-                  setD(() => deleting = true);
+                  if (isPasswordUser && pwdCtrl.text.trim().isEmpty) {
+                    setD(() {
+                      dialogErr = p.isAr
+                          ? 'يرجى إدخال كلمة المرور للتأكيد'
+                          : 'Please enter your password to confirm';
+                    });
+                    return;
+                  }
+                  setD(() {
+                    deleting = true;
+                    dialogErr = null;
+                  });
                   // Capture all context-dependent refs BEFORE first await
                   final authService = context.read<AuthService>();
                   final appProvider = context.read<AppProvider>();
                   final nav = Navigator.of(context);
+                  final dialogNav = Navigator.of(ctx);
                   final err = await authService.deleteAccount(
                     password: isPasswordUser ? pwdCtrl.text : null,
+                    lang: p.language,
                   );
-                  if (!mounted) return;
-                  nav.pop();
                   if (err != null) {
-                    _snack('❌ $err');
-                  } else {
-                    await appProvider.clearUserData();
-                    if (!mounted) return;
-                    nav.pushAndRemoveUntil(
-                      MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      (_) => false,
-                    );
+                    if (ctx.mounted) {
+                      setD(() {
+                        deleting = false;
+                        dialogErr = err;
+                      });
+                    }
+                    return;
                   }
+                  await appProvider.clearUserData();
+                  if (dialogNav.mounted) dialogNav.pop();
+                  if (!mounted) return;
+                  nav.pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    (_) => false,
+                  );
                 },
                 child: Text(p.isAr ? 'حذف نهائي' : 'Delete', style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w800)),
               ),
@@ -477,8 +479,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 const SizedBox(width: 6),
                                 Text(
                                   p.isAr
-                                      ? 'الصف $_grade • ${_subscribed ? p.subscribed : "غير مشترك"}'
-                                      : 'Grade $_grade • ${_subscribed ? p.subscribed : "Not Subscribed"}',
+                                      ? 'الصف $_grade • ${(_subscribed || p.isSubscribed) ? p.subscribed : "غير مشترك"}'
+                                      : 'Grade $_grade • ${(_subscribed || p.isSubscribed) ? p.subscribed : "Not Subscribed"}',
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 11,
@@ -794,64 +796,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 12),
 
               // ── Logout ────────────────────────────────────────────
-              ElevatedButton.icon(
-                icon: const Icon(Icons.logout, size: 18),
-                label: Text(p.logout),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red.withValues(alpha: 0.1),
-                  foregroundColor: Colors.red,
-                  elevation: 0,
-                  side: BorderSide(color: Colors.red.withValues(alpha: 0.2)),
-                  padding: const EdgeInsets.all(14),
-                ),
-                onPressed: () async {
-                  // Show confirmation dialog before logging out
-                  final confirmed = await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      title: Row(
-                        children: [
-                          const Icon(Icons.logout, color: Colors.red, size: 20),
-                          const SizedBox(width: 8),
-                          Text(p.logoutConfirmTitle,
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, fontFamily: 'Cairo')),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.logout, size: 18),
+                  label: Text(p.logout),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.withValues(alpha: 0.1),
+                    foregroundColor: Colors.red,
+                    elevation: 0,
+                    side: BorderSide(color: Colors.red.withValues(alpha: 0.2)),
+                    padding: const EdgeInsets.all(14),
+                  ),
+                  onPressed: () async {
+                    // Show confirmation dialog before logging out
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        title: Row(
+                          children: [
+                            const Icon(Icons.logout, color: Colors.red, size: 20),
+                            const SizedBox(width: 8),
+                            Text(p.logoutConfirmTitle,
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, fontFamily: 'Cairo')),
+                          ],
+                        ),
+                        content: Text(
+                          p.logoutConfirmMsg,
+                          style: const TextStyle(fontSize: 13, fontFamily: 'Cairo'),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: Text(p.cancel, style: const TextStyle(fontFamily: 'Cairo', color: AppTheme.textSec)),
+                          ),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: Text(p.logout, style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w800)),
+                          ),
                         ],
                       ),
-                      content: Text(
-                        p.logoutConfirmMsg,
-                        style: const TextStyle(fontSize: 13, fontFamily: 'Cairo'),
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, false),
-                          child: Text(p.cancel, style: const TextStyle(fontFamily: 'Cairo', color: AppTheme.textSec)),
-                        ),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          onPressed: () => Navigator.pop(ctx, true),
-                          child: Text(p.logout, style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w800)),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (confirmed != true) return;
-                  if (!context.mounted) return;
-                  final appProvider = context.read<AppProvider>();
-                  final auth = context.read<AuthService>();
-                  final nav = Navigator.of(context);
-                  await appProvider.clearUserData();
-                  await auth.logout();
-                  nav.pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    (_) => false,
-                  );
-
-                },
+                    );
+                    if (confirmed != true) return;
+                    if (!context.mounted) return;
+                    final appProvider = context.read<AppProvider>();
+                    final auth = context.read<AuthService>();
+                    final nav = Navigator.of(context);
+                    await appProvider.clearUserData();
+                    await auth.logout();
+                    nav.pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                      (_) => false,
+                    );
+                  },
+                ),
               ),
 
               const SizedBox(height: 12),
@@ -1149,8 +1153,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 12),
             _savingPwd
                 ? const CircularProgressIndicator()
-                : ElevatedButton(
-                    onPressed: _changePwd, child: Text(p.changePwd)),
+                : SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                        onPressed: _changePwd, child: Text(p.changePwd)),
+                  ),
           ],
         ),
       );

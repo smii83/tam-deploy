@@ -83,8 +83,8 @@ class _HomeScreenState extends State<HomeScreen> {
         : (FirebaseAuth.instance.currentUser?.displayName?.trim() ?? '');
     final name = pbName.isNotEmpty ? pbName : fbName;
 
-    final grade = userData['grade'] ?? 12;
-    final section = userData['section'] ?? 'scientific';
+    final grade = (userData['grade'] as num?)?.toInt() ?? 12;
+    final section = userData['section'] as String? ?? 'scientific';
     final country = (userData['country'] as String?) ?? p.selectedCountry;
 
     final allSubjects =
@@ -103,9 +103,13 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-          _tab == 0
-              ? _buildHome(p, allSubjects, name, grade, section)
-              : const SettingsScreen(),
+          IndexedStack(
+            index: _tab,
+            children: [
+              _buildHome(p, allSubjects, name, grade, section),
+              const SettingsScreen(),
+            ],
+          ),
         ],
       ),
       bottomNavigationBar: _buildNav(p),
@@ -438,24 +442,21 @@ class _HomeScreenState extends State<HomeScreen> {
             final subjectName = subject != null
                 ? (p.isAr ? subject['ar']! : subject['en']!)
                 : '';
+            final title = (lesson['title_ar'] ?? lesson['name'] ?? '').toString();
             return _searchResultTile(
               icon: '🎦',
               iconColor: const Color(0xFF7B7FD9),
-              title: lesson['name'] as String? ?? '',
+              title: title,
               subtitle: subjectName,
               badge: p.isAr ? 'درس' : 'Lesson',
               badgeColor: const Color(0xFF7B7FD9),
               isDark: isDark,
-              onTap: subject != null
-                  ? () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => LessonsScreen(
-                            subjectId: subjectId,
-                            subject: subject,
-                            grade: grade,
-                          ),
-                        ),
+              onTap: subjectId.isNotEmpty
+                  ? () => _openSearchSubjectTarget(
+                        subjectId: subjectId,
+                        cachedSubject: subject,
+                        fallbackGrade: grade,
+                        isPdf: false,
                       )
                   : null,
             );
@@ -503,30 +504,59 @@ class _HomeScreenState extends State<HomeScreen> {
                 : pdfType == 'exam_answer'
                     ? (p.isAr ? 'أجوبة امتحانات' : 'Exam Answers')
                     : (p.isAr ? 'ملف' : 'File');
+            final title = (pdf['title_ar'] ?? pdf['name'] ?? '').toString();
             return _searchResultTile(
               icon: '📄',
               iconColor: const Color(0xFFE87FA8),
-              title: pdf['name'] as String? ?? '',
+              title: title,
               subtitle: subjectName,
               badge: typeLabel,
               badgeColor: const Color(0xFFE87FA8),
               isDark: isDark,
-              onTap: subject != null
-                  ? () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => PDFsScreen(
-                            subjectId: subjectId,
-                            subject: subject,
-                            grade: grade,
-                          ),
-                        ),
+              onTap: subjectId.isNotEmpty
+                  ? () => _openSearchSubjectTarget(
+                        subjectId: subjectId,
+                        cachedSubject: subject,
+                        fallbackGrade: grade,
+                        isPdf: true,
                       )
                   : null,
             );
           })),
         ],
       ],
+    );
+  }
+
+  Future<void> _openSearchSubjectTarget({
+    required String subjectId,
+    required Map<String, String>? cachedSubject,
+    required int fallbackGrade,
+    required bool isPdf,
+  }) async {
+    var resolved = cachedSubject;
+    if (resolved == null) {
+      final raw = await FirestoreDataService.getSubjectById(subjectId);
+      if (!mounted) return;
+      if (raw != null) {
+        resolved = <String, String>{
+          'ar': (raw['name_ar'] as String?) ?? '',
+          'en': (raw['name_en'] as String?) ?? '',
+          'em': (raw['icon'] as String?) ?? '📚',
+          'color': ((raw['color'] as String?) ?? '7c3aed').replaceAll('#', ''),
+          'id': (raw['id'] as String?) ?? subjectId,
+        };
+      }
+    }
+    if (!mounted || resolved == null) return;
+    final sub = resolved;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => isPdf
+            ? PDFsScreen(subjectId: subjectId, subject: sub, grade: fallbackGrade)
+            : LessonsScreen(subjectId: subjectId, subject: sub, grade: fallbackGrade),
+      ),
     );
   }
 
@@ -572,7 +602,7 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (_) => SubjectScreen(
             subject: subject,
             subjectId: subject['id'],
-            grade: (p.userData?['grade'] ?? 12),
+            grade: ((p.userData?['grade'] as num?)?.toInt() ?? 12),
           ),
         ),
       ),

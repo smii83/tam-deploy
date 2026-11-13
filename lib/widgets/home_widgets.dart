@@ -30,7 +30,7 @@ class SearchResultTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedPressable(
-      onTap: onTap ?? () {},
+      onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),

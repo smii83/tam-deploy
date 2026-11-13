@@ -1,0 +1,149 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ──────────────────────────────────────────────────
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuth() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isAuth() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email in ['tam.app83@gmail.com', 'tm.app83@gmail.com', 'tamteach01@gmail.com', 'admin@tam.com', 'admin@eduspark.com']
+      );
+    }
+
+    function isSubscribed() {
+      return isAdmin() || (
+        isAuth() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('is_blocked', false) != true &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('is_subscribed', false) == true
+      );
+    }
+
+    // ── Admins ────────────────────────────────────────────────────────────
+    match /admins/{adminId} {
+      allow read: if isOwner(adminId);
+      allow write: if false; // Only Firebase Console / server SDK
+    }
+
+    // ── Users ─────────────────────────────────────────────────────────────
+    // Each user can read/write ONLY their own document.
+    // Admins have full access (for dashboard management).
+    match /users/{userId} {
+      allow read:   if isOwner(userId) || isAdmin();
+      // A user may create ONLY their own doc and may not self-assign sensitive
+      // fields (the app writes is_subscribed/is_blocked = false on signup).
+      allow create: if isAdmin() || (isOwner(userId)
+                    && !request.resource.data.keys().hasAny(['is_admin', 'role'])
+                    && request.resource.data.get('is_subscribed', false) == false
+                    && request.resource.data.get('is_blocked', false) == false);
+      // Admins have full update rights; regular users can only update their own non-sensitive fields
+      allow update: if isAdmin() || (isOwner(userId)
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                        .hasAny(['is_blocked', 'is_admin', 'role', 'is_subscribed']));
+      allow delete: if isOwner(userId) || isAdmin(); // Required for Apple 5.1.1 and Admin deletion
+
+      // ── Progress subcollection ──────────────────────────────────────────
+      match /progress/{lessonId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      // ── Quiz Results subcollection ──────────────────────────────────────
+      match /quiz_results/{resultId} {
+        allow read:           if isOwner(userId) || isAdmin();
+        allow create:         if isOwner(userId);
+        allow update:         if isAdmin();
+        allow delete:         if isOwner(userId) || isAdmin(); // account deletion
+      }
+    }
+
+    // ── Subscriptions ─────────────────────────────────────────────────────
+    // Users can READ their own subscriptions and CREATE one for themselves
+    // right after a successful store purchase (validated shape, id = store
+    // transaction id, so it can't be overwritten). They can never update, but
+    // may delete their own record (in-app account deletion, App Store 5.1.1(v)).
+    // Admins (dashboard) and Cloud Functions (Admin SDK) manage the rest.
+    // TODO: remove the client-side create rule below once APPLE_SHARED_SECRET is
+    // configured and the validated ctivateSubscription Cloud Function is
+    // deployed (then only the function should write subscription records).
+    // ── Subscriptions (strict Blaze mode: Admin Dashboard / Cloud Functions only) ──
+    match /subscriptions/{subId} {
+      allow read:   if (isAuth() && resource.data.firebase_uid == request.auth.uid) || isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin() || (isAuth() && resource.data.firebase_uid == request.auth.uid);
+    }
+
+    // ── Grades ────────────────────────────────────────────────────────────
+    match /grades/{gradeId} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // ── Subjects ──────────────────────────────────────────────────────────
+    match /subjects/{subjectId} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // ── Lessons ───────────────────────────────────────────────────────────
+    match /lessons/{lessonId} {
+      allow read:  if isSubscribed();
+      allow write: if isAdmin();
+    }
+
+    // ── PDFs ──────────────────────────────────────────────────────────────
+    match /pdfs/{pdfId} {
+      allow read:  if isSubscribed();
+      allow write: if isAdmin();
+    }
+
+    // ── Interactive lessons (slides generated from summary PDFs) ──────────
+    // Written by the generateInteractiveLesson Cloud Function (Admin SDK).
+    match /interactive_lessons/{lessonId} {
+      allow read:  if isSubscribed();
+      allow write: if isAdmin();
+    }
+    match /interactive_content/{lessonId} {
+      allow read:  if isSubscribed();
+      allow write: if isAdmin();
+    }
+    // MP3 narration clips (base64) — used when Firebase Storage is unavailable.
+    match /interactive_audio/{clipId} {
+      allow read:  if isSubscribed();
+      allow write: if isAdmin();
+    }
+
+    // ── Q&A cache for lessonAsk (server-side only) ────────────────────────
+    match /lesson_qa_cache/{key} {
+      allow read, write: if false;
+    }
+
+    // ── Countries (public config) ─────────────────────────────────────────
+    match /countries/{countryId} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // ── Global Config (strict Blaze mode: AI secret config is Admin-only) ──
+    match /config/{configId} {
+      allow read:  if isAdmin() || (isAuth() && configId != 'ai');
+      allow write: if isAdmin();
+    }
+
+    // ── Rate Limit Counters (Firestore-backed, server-side only) ─────────
+    // Rate limits are now managed by Cloud Functions using Admin SDK.
+    // Clients can no longer read or write rate limit documents directly,
+    // preventing any bypass of the rate limiting system.
+    match /rate_limits/{userId} {
+      allow read, write: if false; // Cloud Functions (Admin SDK) only
+    }
+  }
+}

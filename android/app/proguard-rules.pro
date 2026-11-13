@@ -12,9 +12,6 @@
 -dontwarn com.google.firebase.**
 -dontwarn com.google.android.gms.**
 
-# Firebase Messaging
--keep class com.google.firebase.messaging.** { *; }
-
 # Google Sign-In
 -keep class com.google.android.gms.auth.** { *; }
 
@@ -35,17 +32,26 @@
 -keepattributes Signature
 -keepattributes Exceptions
 
-# Camera
--keep class androidx.camera.** { *; }
--dontwarn androidx.camera.**
+# Suppress warnings for missing classes not used at runtime
+-dontwarn com.google.firebase.messaging.**
 
-# Video Player (ExoPlayer)
+# Image Picker & FileProvider
+-keep class io.flutter.plugins.imagepicker.** { *; }
+
+# Speech to Text & Text to Speech
+-keep class com.csdcorp.speech_to_text.** { *; }
+-keep class com.tundralabs.fluttertts.** { *; }
+
+# Video Player (Media3 / ExoPlayer)
+-keep class androidx.media3.** { *; }
+-dontwarn androidx.media3.**
 -keep class com.google.android.exoplayer2.** { *; }
 -dontwarn com.google.android.exoplayer2.**
 
-# PDF Viewer
--keep class com.pspdfkit.** { *; }
--dontwarn com.pspdfkit.**
+# PDF Viewer (flutter_pdfview / PdfiumAndroid)
+-keep class com.shockwave.pdfium.** { *; }
+-keep class com.github.barteksc.pdfviewer.** { *; }
+-dontwarn com.github.barteksc.pdfviewer.**
 
 # Suppress warnings for missing classes not used at runtime
 -dontwarn org.bouncycastle.**

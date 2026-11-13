@@ -169,6 +169,20 @@ class FirestoreDataService {
     return list;
   }
 
+  /// Fetch a single subject record by document ID (returns null if missing).
+  static Future<Map<String, dynamic>?> getSubjectById(
+      String subjectId) async {
+    if (subjectId.isEmpty) return null;
+    try {
+      final doc = await _db.collection('subjects').doc(subjectId).get();
+      final data = doc.data();
+      if (!doc.exists || data == null) return null;
+      return {'id': doc.id, ...data};
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Fetch subjects for a grade number (looks up grade first)
   static Future<List<Map<String, dynamic>>> getSubjectsByGradeNumber(
       int gradeNumber, [String section = '', String country = 'kw']) async {
@@ -215,6 +229,9 @@ class FirestoreDataService {
     list.sort(_comparePdfs);
     return list;
   }
+
+  /// Parses Firestore [Timestamp], [DateTime], epoch millis, or ISO strings.
+  static int parseTimestampMillis(dynamic v) => _millis(v);
 
   static int _millis(dynamic v) {
     if (v == null) return 0;
@@ -343,8 +360,13 @@ class FirestoreDataService {
         .map((d) => {'id': d.id, ...d.data()})
         .where((lesson) {
           final name = (lesson['name'] as String? ?? '').toLowerCase();
+          final titleAr = (lesson['title_ar'] as String? ?? '').toLowerCase();
+          final titleEn = (lesson['title_en'] as String? ?? '').toLowerCase();
           final desc = (lesson['description'] as String? ?? '').toLowerCase();
-          return name.contains(q) || desc.contains(q);
+          return name.contains(q) ||
+              titleAr.contains(q) ||
+              titleEn.contains(q) ||
+              desc.contains(q);
         })
         .take(40)
         .toList();
@@ -363,9 +385,15 @@ class FirestoreDataService {
         .map((d) => {'id': d.id, ...d.data()})
         .where((pdf) {
           final name = (pdf['name'] as String? ?? '').toLowerCase();
+          final titleAr = (pdf['title_ar'] as String? ?? '').toLowerCase();
+          final titleEn = (pdf['title_en'] as String? ?? '').toLowerCase();
           final desc = (pdf['description'] as String? ?? '').toLowerCase();
           final type = (pdf['pdf_type'] as String? ?? '').toLowerCase();
-          return name.contains(q) || desc.contains(q) || type.contains(q);
+          return name.contains(q) ||
+              titleAr.contains(q) ||
+              titleEn.contains(q) ||
+              desc.contains(q) ||
+              type.contains(q);
         })
         .take(40)
         .toList();

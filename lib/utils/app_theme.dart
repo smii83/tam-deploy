@@ -169,7 +169,7 @@ class AppTheme {
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(style: ElevatedButton.styleFrom(
       backgroundColor: primary, foregroundColor: Colors.white,
-      minimumSize: const Size.fromHeight(54),
+      minimumSize: const Size(0, 48),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       elevation: 0, shadowColor: primary.withValues(alpha: 0.35),
       textStyle: const TextStyle(fontFamily: 'Cairo', fontSize: 15, fontWeight: FontWeight.w800),
@@ -201,7 +201,7 @@ class AppTheme {
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(style: ElevatedButton.styleFrom(
       backgroundColor: primary, foregroundColor: Colors.white,
-      minimumSize: const Size.fromHeight(54),
+      minimumSize: const Size(0, 48),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       elevation: 0,
       textStyle: const TextStyle(fontFamily: 'Cairo', fontSize: 15, fontWeight: FontWeight.w800),
@@ -444,7 +444,7 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: m.primary,
           foregroundColor: Colors.white,
-          minimumSize: const Size.fromHeight(54),
+          minimumSize: const Size(0, 48),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
           elevation: isWin ? 2 : 0,
           shadowColor: m.primary.withValues(alpha: isWin ? 0.40 : 0.30),
@@ -517,7 +517,7 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: m.primary,
           foregroundColor: Colors.white,
-          minimumSize: const Size.fromHeight(54),
+          minimumSize: const Size(0, 48),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
           elevation: isWin ? 4 : 0,
           shadowColor: m.primary.withValues(alpha: isWin ? 0.50 : 0.35),

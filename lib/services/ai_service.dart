@@ -176,6 +176,10 @@ class AIService {
   }
 
   /// Extracts the answer text from a 200 response (ignores "thought" parts).
+  @visibleForTesting
+  static String? extractTextFromResponse(http.Response response) =>
+      _extractText(response);
+
   static String? _extractText(http.Response response) {
     try {
       final decoded =
@@ -203,6 +207,11 @@ class AIService {
   /// Builds a valid Gemini `contents` list from chat history: drops leading
   /// assistant messages (e.g. the welcome text) and merges consecutive turns
   /// of the same role, which the API can reject.
+  @visibleForTesting
+  static List<Map<String, dynamic>> buildChatContentsForTest(
+          List<Map<String, String>> history, String message) =>
+      _buildChatContents(history, message);
+
   static List<Map<String, dynamic>> _buildChatContents(
       List<Map<String, String>> history, String message) {
     final List<Map<String, dynamic>> contents = [];
@@ -230,6 +239,9 @@ class AIService {
   }
 
   /// Detects the image mime type from magic bytes (falls back to [hint]).
+  @visibleForTesting
+  static String sniffMime(Uint8List b, String hint) => _sniffMime(b, hint);
+
   static String _sniffMime(Uint8List b, String hint) {
     if (b.length > 3) {
       if (b[0] == 0xFF && b[1] == 0xD8) return 'image/jpeg';
@@ -247,36 +259,44 @@ class AIService {
     required String message,
     String? userName,
     String country = 'kw',
+    bool isAr = true,
   }) async {
     try {
       final isEnglish = subject.toLowerCase().contains('english') ||
           subject.contains('إنجليزي');
       final gender = isEnglish ? 'معلمة خبيرة' : 'مدرس خبير ومحترف';
       final nameContext = (userName != null && userName.isNotEmpty)
-          ? 'نادِ الطالب دائماً باسمه الأول ($userName).'
+          ? (isAr
+              ? 'نادِ الطالب دائماً باسمه الأول ($userName).'
+              : 'Always address the student by first name ($userName).')
           : '';
       final countryText = country == 'sa'
-          ? 'المنهج السعودي'
+          ? (isAr ? 'المنهج السعودي' : 'Saudi MOE curriculum')
           : country == 'ae'
-              ? 'المنهج الإماراتي'
-              : 'المنهج الكويتي';
+              ? (isAr ? 'المنهج الإماراتي' : 'UAE MOE curriculum')
+              : (isAr ? 'المنهج الكويتي' : 'Kuwait MOE curriculum');
       final dialectText = country == 'sa'
           ? 'تحدث بلهجة سعودية خليجية طبيعية. '
           : country == 'ae'
               ? 'تحدث بلهجة إماراتية خليجية طبيعية. '
               : 'تحدث بلهجة كويتية خليجية طبيعية. ';
 
-      final systemPrompt =
-          'أنت $gender في مادة $subject لـ $countryText، الصف $grade. '
-          'اسمك "مدرس تَم الذكي". '
-          'تعطي درساً خصوصياً كأنك جاس عند الطالب في البيت — دافيء، مريح، ومهتم فيه شخصياً. '
-          '$dialectText'
-          '$nameContext '
-          'تبدأ كل جواب بطريقة تشعر الطالب إنك موجود معه حقيقياً مثل "آه هذا سؤال حلو" أو "خل أوضحلك" أو "والله هذا بالضبط للي كان يلزمنا نوضحه". '
-          'تضرب أمثلة من الحياة اليومية الخليجية بشكل طبيعي. '
-          'تشرح خطوة بخطوة بدون تعقيد. '
-          'إذا أخطأ الطالب في سؤال صحح بلطف وشجعه بلهجة خليجية دافيئة مثل "لا بأس هذا أول مرة" أو "خل نفكر سوا". '
-          '⚠️ أنت متخصص حصراً في مادة ($subject). إذا سألك الطالب عن موضوع آخر اعتذر بلطف ووجهه للسؤال في مادته الدراسية.';
+      final systemPrompt = isAr
+          ? 'أنت $gender في مادة $subject لـ $countryText، الصف $grade. '
+              'اسمك "مدرس تَم الذكي". '
+              'تعطي درساً خصوصياً كأنك جالس عند الطالب في البيت — دافيء، مريح، ومهتم فيه شخصياً. '
+              '$dialectText'
+              '$nameContext '
+              'تبدأ كل جواب بطريقة تشعر الطالب إنك موجود معه حقيقياً مثل "آه هذا سؤال حلو" أو "خل أوضحلك" أو "والله هذا بالضبط للي كان يلزمنا نوضحه". '
+              'تضرب أمثلة من الحياة اليومية الخليجية بشكل طبيعي. '
+              'تشرح خطوة بخطوة بدون تعقيد. '
+              'إذا أخطأ الطالب في سؤال صحح بلطف وشجعه بلهجة خليجية دافيئة مثل "لا بأس هذا أول مرة" أو "خل نفكر سوا". '
+              '⚠️ أنت متخصص حصراً في مادة ($subject). إذا سألك الطالب عن موضوع آخر اعتذر بلطف ووجهه للسؤال في مادته الدراسية.'
+          : 'You are an expert private tutor for $subject ($countryText, Grade $grade). '
+              'Your name is "TAM Smart Tutor". '
+              'Teach warmly step by step as in a supportive one-on-one tutoring session. '
+              '$nameContext '
+              'Only answer questions related to ($subject); gently redirect off-topic questions back to this subject.';
 
       final contents = _buildChatContents(history, message);
 
@@ -287,9 +307,13 @@ class AIService {
     } catch (e) {
       debugPrint('AIService.chat error: $e');
       if (e.toString().contains('QUOTA_EXCEEDED')) {
-        return 'لقد تجاوزت الحد المسموح من الأسئلة مؤقتاً. يرجى المحاولة بعد قليل 🕐';
+        return isAr
+            ? 'لقد تجاوزت الحد المسموح من الأسئلة مؤقتاً. يرجى المحاولة بعد قليل 🕐'
+            : 'Temporary question limit reached. Please try again shortly 🕐';
       }
-      return '⚠️ تعذّر الاتصال بالمدرس الذكي حالياً. يرجى التأكد من اتصال الإنترنت والمحاولة مجدداً.';
+      return isAr
+          ? '⚠️ تعذّر الاتصال بالمدرس الذكي حالياً. يرجى التأكد من اتصال الإنترنت والمحاولة مجدداً.'
+          : '⚠️ Could not reach the Smart Tutor right now. Please check your internet connection and try again.';
     }
   }
 
@@ -299,12 +323,15 @@ class AIService {
     required String mediaType,
     required String subject,
     int? grade,
+    bool isAr = true,
   }) async {
     try {
-      final gradeText = grade != null ? 'للصف $grade' : '';
-      final prompt =
-          'أنت مدرس خبير ومحترف في مادة $subject $gradeText. '
-          'قم بقراءة المسألة أو التمرين في الصورة بعناية فائقة، ثم اشرح الحل بالتفصيل خطوة بخطوة باللغة العربية بطريقة تعليمية مبسطة ومشجعة للطالب.';
+      final gradeText = grade != null ? (isAr ? 'للصف $grade' : 'for Grade $grade') : '';
+      final prompt = isAr
+          ? 'أنت مدرس خبير ومحترف في مادة $subject $gradeText. '
+              'قم بقراءة المسألة أو التمرين في الصورة بعناية فائقة، ثم اشرح الحل بالتفصيل خطوة بخطوة باللغة العربية بطريقة تعليمية مبسطة ومشجعة للطالب.'
+          : 'You are an expert tutor in $subject $gradeText. '
+              'Carefully read the problem in the image and explain the complete solution step by step in clear, encouraging English.';
 
       final mime = _sniffMime(imageBytes, mediaType);
       final base64Image = base64Encode(imageBytes);
@@ -328,9 +355,13 @@ class AIService {
     } catch (e) {
       debugPrint('AIService.solveFromImage error: $e');
       if (e.toString().contains('QUOTA_EXCEEDED')) {
-        return 'لقد تجاوزت الحد المسموح من تحليل الصور مؤقتاً. يرجى المحاولة لاحقاً 🕐';
+        return isAr
+            ? 'لقد تجاوزت الحد المسموح من تحليل الصور مؤقتاً. يرجى المحاولة لاحقاً 🕐'
+            : 'Temporary image analysis limit reached. Please try again shortly 🕐';
       }
-      return 'عذراً، حدث خطأ أثناء تحليل الصورة وحل المسألة. يرجى المحاولة مجدداً والتأكد من وضوح الصورة.';
+      return isAr
+          ? 'عذراً، حدث خطأ أثناء تحليل الصورة وحل المسألة. يرجى المحاولة مجدداً والتأكد من وضوح الصورة.'
+          : 'Sorry, could not analyze the image right now. Please make sure the photo is clear and try again.';
     }
   }
 
@@ -340,15 +371,21 @@ class AIService {
     required String mediaType,
     required String subject,
     int? grade,
+    bool isAr = true,
   }) async {
     try {
-      final gradeText = grade != null ? 'للصف $grade' : '';
-      final prompt =
-          'أنت مدرس خبير ومصحح معتمد في مادة $subject $gradeText. '
-          'صحح هذا الواجب أو الحل المكتوب في الصورة بدقة: '
-          '1. حدد الإجابات الصحيحة ووضح الأخطاء إن وجدت. '
-          '2. قدم الدرجة التقديرية أو التقييم المشجع. '
-          '3. اكتب ملاحظات ونصائح لتفوق الطالب بالعربية.';
+      final gradeText = grade != null ? (isAr ? 'للصف $grade' : 'for Grade $grade') : '';
+      final prompt = isAr
+          ? 'أنت مدرس خبير ومصحح معتمد في مادة $subject $gradeText. '
+              'صحح هذا الواجب أو الحل المكتوب في الصورة بدقة: '
+              '1. حدد الإجابات الصحيحة ووضح الأخطاء إن وجدت. '
+              '2. قدم الدرجة التقديرية أو التقييم المشجع. '
+              '3. اكتب ملاحظات ونصائح لتفوق الطالب بالعربية.'
+          : 'You are an expert grader for $subject $gradeText. '
+              'Grade the handwritten/printed solution in the image carefully: '
+              '1. Identify correct answers and explain any mistakes clearly. '
+              '2. Provide an estimated score and encouraging feedback. '
+              '3. Give actionable study tips in English.';
 
       final mime = _sniffMime(imageBytes, mediaType);
       final base64Image = base64Encode(imageBytes);
@@ -372,9 +409,13 @@ class AIService {
     } catch (e) {
       debugPrint('AIService.gradeAssignment error: $e');
       if (e.toString().contains('QUOTA_EXCEEDED')) {
-        return 'لقد تجاوزت الحد المسموح من تصحيح الواجبات مؤقتاً. يرجى المحاولة لاحقاً 🕐';
+        return isAr
+            ? 'لقد تجاوزت الحد المسموح من تصحيح الواجبات مؤقتاً. يرجى المحاولة لاحقاً 🕐'
+            : 'Temporary homework grading limit reached. Please try again shortly 🕐';
       }
-      return 'عذراً، حدث خطأ أثناء تصحيح الواجب. يرجى المحاولة مجدداً والتأكد من وضوح الخط.';
+      return isAr
+          ? 'عذراً، حدث خطأ أثناء تصحيح الواجب. يرجى المحاولة مجدداً والتأكد من وضوح الخط.'
+          : 'Sorry, could not grade the assignment right now. Please ensure handwriting is clear and try again.';
     }
   }
 
@@ -384,19 +425,30 @@ class AIService {
     required int grade,
     required List<String> pdfTexts,
     int count = 5,
+    bool isAr = true,
   }) async {
     try {
       final contextText = pdfTexts.isNotEmpty
-          ? 'المحتوى التعليمي:\n${pdfTexts.join("\n\n")}'
-          : 'أنشئ $count أسئلة شاملة ومميزة لمنهج مادة $subject للصف $grade.';
+          ? (isAr
+              ? 'المحتوى التعليمي:\n${pdfTexts.join("\n\n")}'
+              : 'Curriculum context:\n${pdfTexts.join("\n\n")}')
+          : (isAr
+              ? 'أنشئ $count أسئلة شاملة ومميزة لمنهج مادة $subject للصف $grade.'
+              : 'Create $count comprehensive questions for $subject Grade $grade.');
 
-      final prompt =
-          'أنت معلم محترف ومعد اختبارات متميز. '
-          'أنشئ بالضبط $count أسئلة اختيار من متعدد في مادة $subject للصف $grade. '
-          'لكل سؤال وفر 4 خيارات ورقم الإشارة للإجابة الصحيحة (0 أو 1 أو 2 أو 3) وشرح موجز للإجابة.\n'
-          '$contextText\n'
-          'يجب أن يكون المخرج بصيغة JSON حصراً بالمفتاح "questions" وقائمة أسئلة تحوي: '
-          '{"questions": [{"question": "نص السؤال", "options": ["خيار 1", "خيار 2", "خيار 3", "خيار 4"], "correctIndex": 0, "explanation": "تفسير الحل"}]}';
+      final prompt = isAr
+          ? 'أنت معلم محترف ومعد اختبارات متميز. '
+              'أنشئ بالضبط $count أسئلة اختيار من متعدد في مادة $subject للصف $grade. '
+              'لكل سؤال وفر 4 خيارات ورقم الإشارة للإجابة الصحيحة (0 أو 1 أو 2 أو 3) وشرح موجز للإجابة.\n'
+              '$contextText\n'
+              'يجب أن يكون المخرج بصيغة JSON حصراً بالمفتاح "questions" وقائمة أسئلة تحوي: '
+              '{"questions": [{"question": "نص السؤال", "options": ["خيار 1", "خيار 2", "خيار 3", "خيار 4"], "correctIndex": 0, "explanation": "تفسير الحل"}]}'
+          : 'You are an expert curriculum assessment author. '
+              'Create exactly $count multiple-choice questions for $subject Grade $grade in clear English. '
+              'Provide 4 options per question, the zero-based correctIndex (0-3), and a brief explanation.\n'
+              '$contextText\n'
+              'Output ONLY valid JSON with key "questions": '
+              '{"questions": [{"question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0, "explanation": "..."}]}';
 
       final contents = [
         {
@@ -464,6 +516,13 @@ class AIService {
     }
   }
 
+  static void _putBounded<V>(Map<String, V> cache, String key, V value, int maxSize) {
+    if (cache.length >= maxSize && !cache.containsKey(key)) {
+      cache.remove(cache.keys.first);
+    }
+    cache[key] = value;
+  }
+
   // ── Interactive whiteboard: student interrupts the teacher ───────────────
   static final Map<String, String> _lessonAskCache = {};
 
@@ -519,7 +578,7 @@ class AIService {
     );
     final answer = raw.replaceAll(RegExp(r'[*_#`]'), '').trim();
     if (answer.isEmpty) throw Exception('EMPTY_RESPONSE');
-    _lessonAskCache[cacheKey] = answer;
+    _putBounded(_lessonAskCache, cacheKey, answer, 30);
     return answer;
   }
 
@@ -527,7 +586,7 @@ class AIService {
   // Same engine, voice and director's notes the lesson narration is generated
   // with (scratch/audio_tools/generate_audio.js) → the answer sounds like the
   // same Gulf-Arabic teacher instead of the robotic device voice.
-  static const String defaultVoice = 'Charon';
+  static const String defaultVoice = 'Kore';
   static const String _ttsStyle =
       "# AUDIO PROFILE: Ustaz Tam\n## THE SCENE: A calm, friendly classroom in Kuwait.\n### DIRECTOR'S NOTES\n"
       'Style: a warm, clear and confident school teacher explaining to a student; natural and encouraging.\n'
@@ -535,10 +594,8 @@ class AIService {
       'Pace: calm and steady, with short natural pauses between sentences.\n'
       'Pronunciation: scientific terms pronounced accurately.\n\n#### TRANSCRIPT\n';
 
-  /// Same order the lesson audio is generated with (newest/best first).
+  /// Live Gemini TTS models in preference order (avoids non-existent 404 hops).
   static const List<String> _ttsModels = [
-    'gemini-3.8-flash-tts',
-    'gemini-3.8-flash-lite-tts',
     'gemini-3.1-flash-tts-preview',
     'gemini-2.5-flash-preview-tts',
   ];
@@ -620,7 +677,7 @@ class AIService {
                 final wav = TtsAudio.cleanedWavFromGemini(
                     base64Decode(inline['data'] as String),
                     inline['mimeType'] as String?);
-                _ttsCache[cacheKey] = wav;
+                _putBounded(_ttsCache, cacheKey, wav, 15);
                 return wav;
               }
             } catch (e) {

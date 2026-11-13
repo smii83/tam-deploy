@@ -1,7 +1,8 @@
 import * as admin from "firebase-admin";
-import { onCall, HttpsError, CallableRequest } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { GoogleGenerativeAI, Part } from "@google/generative-ai";
 import { defineSecret, defineString } from "firebase-functions/params";
+import { requireAuth, requireAdmin, assertActiveSubscriber } from "./auth";
 
 // ── Initialise Firebase Admin ─────────────────────────────────────────────
 admin.initializeApp();
@@ -29,14 +30,6 @@ const MODEL_CANDIDATES = [
   "gemini-1.5-flash",
 ];
 
-// ── Verify Firebase Auth token ────────────────────────────────────────────
-function requireAuth(request: CallableRequest): string {
-  if (!request.auth?.uid) {
-    throw new HttpsError("unauthenticated", "يجب تسجيل الدخول أولاً.");
-  }
-  return request.auth.uid;
-}
-
 // ── Server-side Rate Limiter (Firestore-backed, cannot be bypassed) ───────
 async function checkRateLimit(uid: string, type: "chat" | "image"): Promise<void> {
   const ref = db.collection("rate_limits").doc(uid);
@@ -50,11 +43,11 @@ async function checkRateLimit(uid: string, type: "chat" | "image"): Promise<void
     const data = snap.data() ?? {};
     const resetAt = data[resetKey] ?? 0;
 
-    // New window if expired
+    // New window if expired (count this first request immediately)
     if (nowMs > resetAt) {
       tx.set(ref, {
-        [chatKey]: 0,
-        [imageKey]: 0,
+        [chatKey]: type === "chat" ? 1 : 0,
+        [imageKey]: type === "image" ? 1 : 0,
         [resetKey]: nowMs + 3_600_000, // 1 hour
       });
       return;
@@ -101,7 +94,7 @@ async function tryModels(
 export const geminiChat = onCall(
   { secrets: [GEMINI_SECRET], region: "me-central1" },
   async (request) => {
-    const uid = requireAuth(request);
+    const uid = await assertActiveSubscriber(request);
     await checkRateLimit(uid, "chat");
 
     const { subject, grade, history, message, userName, country } = request.data as {
@@ -119,13 +112,13 @@ export const geminiChat = onCall(
     const gender = isEnglish ? "معلمة خبيرة" : "مدرس خبير ومحترف";
     const nameContext = userName ? `ناديه دائماً باسمه الأول (${userName}).` : "";
     const countryText =
-      country === "sa" ? "المنهج السعودي" :
-      country === "ae" ? "المنهج الإماراتي" :
-      "المنهج الكويتي";
+        country === "sa" ? "المنهج السعودي" :
+          country === "ae" ? "المنهج الإماراتي" :
+            "المنهج الكويتي";
     const dialectText =
-      country === "sa" ? "تحدث بأسلوب سعودي مشجع وفصيح." :
-      country === "ae" ? "تحدث بأسلوب إماراتي مشجع وفصيح." :
-      "تحدث بلهجة كويتية بيضاء فصيحة ومشجعة.";
+        country === "sa" ? "تحدث بأسلوب سعودي مشجع وفصيح." :
+          country === "ae" ? "تحدث بأسلوب إماراتي مشجع وفصيح." :
+            "تحدث بلهجة كويتية بيضاء فصيحة ومشجعة.";
 
     const systemPrompt =
       `أنت ${gender} في مادة ${subject} لـ ${countryText}، الصف ${grade}. ` +
@@ -159,7 +152,7 @@ export const geminiChat = onCall(
 export const geminiSolveImage = onCall(
   { secrets: [GEMINI_SECRET], region: "me-central1" },
   async (request) => {
-    const uid = requireAuth(request);
+    const uid = await assertActiveSubscriber(request);
     await checkRateLimit(uid, "image");
 
     const { imageBase64, mimeType, subject, grade, mode } = request.data as {
@@ -174,9 +167,9 @@ export const geminiSolveImage = onCall(
 
     const gradeText = grade ? `للصف ${grade}` : "";
     const systemPrompt =
-      mode === "grade"
-        ? `أنت مدرس متخصص في مادة ${subject}. صحح الواجب وحدد الأخطاء وأعط علامة وملاحظات تحسين بالعربية.`
-        : `أنت مدرس متخصص في مادة ${subject} ${gradeText}. حل المسألة في الصورة خطوة بخطوة بالعربية.`;
+      mode === "grade" ?
+        `أنت مدرس متخصص في مادة ${subject}. صحح الواجب وحدد الأخطاء وأعط علامة وملاحظات تحسين بالعربية.` :
+        `أنت مدرس متخصص في مادة ${subject} ${gradeText}. حل المسألة في الصورة خطوة بخطوة بالعربية.`;
 
     const apiKey = GEMINI_SECRET.value();
     const genAI = new GoogleGenerativeAI(apiKey);
@@ -198,7 +191,7 @@ export const geminiSolveImage = onCall(
 export const geminiGenerateQuiz = onCall(
   { secrets: [GEMINI_SECRET], region: "me-central1" },
   async (request) => {
-    const uid = requireAuth(request);
+    const uid = await assertActiveSubscriber(request);
     await checkRateLimit(uid, "chat");
 
     const { subject, grade, pdfTexts, count = 5 } = request.data as {
@@ -208,9 +201,9 @@ export const geminiGenerateQuiz = onCall(
       count?: number;
     };
 
-    const contextText = pdfTexts?.length
-      ? `المحتوى:\n${pdfTexts.join("\n\n")}`
-      : `أنشئ ${count} أسئلة شاملة في مادة ${subject} للصف ${grade}.`;
+    const contextText = pdfTexts?.length ?
+      `المحتوى:\n${pdfTexts.join("\n\n")}` :
+      `أنشئ ${count} أسئلة شاملة في مادة ${subject} للصف ${grade}.`;
 
     const systemPrompt =
       `أنت مدرس خبير. أنتج ${count} أسئلة JSON:\n` +
@@ -239,7 +232,7 @@ export const geminiGenerateQuiz = onCall(
 export const geminiSummarize = onCall(
   { secrets: [GEMINI_SECRET], region: "me-central1" },
   async (request) => {
-    const uid = requireAuth(request);
+    const uid = await assertActiveSubscriber(request);
     await checkRateLimit(uid, "chat");
 
     const { content, subject } = request.data as { content: string; subject: string };
@@ -389,7 +382,7 @@ export const activateSubscription = onCall(
     // ── Validate transactionId format ──────────────────────────────────────
     // iOS: numeric string (StoreKit 1), UUID v4 (StoreKit 2), or alphanumeric token (Sandbox/Local)
     // Android: alphanumeric token from Google Play
-    const validIdPattern = /^[A-Za-z0-9._\-]{1,128}$/;
+    const validIdPattern = /^[A-Za-z0-9._-]{1,128}$/;
     if (!transactionId || typeof transactionId !== "string" || !validIdPattern.test(transactionId.trim())) {
       throw new HttpsError("invalid-argument", "معرّف المعاملة غير صالح.");
     }
@@ -402,7 +395,7 @@ export const activateSubscription = onCall(
       "tam_1month": 30,
       "tam_3months": 90,
       "tam_6months": 180,
-      "tam_6months_12kwd": 180,  // standard product id
+      "tam_6months_12kwd": 180, // standard product id
       "tam_1year": 365,
     };
 
@@ -418,7 +411,7 @@ export const activateSubscription = onCall(
     if (existing.exists && existing.data()?.firebase_uid === uid) {
       // Same user (device switch / restore) — idempotent success.
       // Ensure the user document has the is_subscribed flag set.
-      await db.collection("users").doc(uid).update({ is_subscribed: true }).catch(() => {});
+      await db.collection("users").doc(uid).update({ is_subscribed: true }).catch(() => undefined);
       const prevExp = existing.data()?.expires_at as admin.firestore.Timestamp | undefined;
       return {
         success: true,
@@ -564,19 +557,7 @@ export const activateSubscription = onCall(
 export const adminSetUserPassword = onCall(
   { region: "me-central1" },
   async (request) => {
-    if (!request.auth?.uid) {
-      throw new HttpsError("unauthenticated", "يجب تسجيل الدخول كمسؤول.");
-    }
-    const callerEmail = (request.auth.token.email || "").toLowerCase().trim();
-    const adminEmails = [
-      "tam.app83@gmail.com",
-      "tm.app83@gmail.com",
-      "tamteach01@gmail.com",
-      "admin@tam.com",
-    ];
-    if (!adminEmails.includes(callerEmail)) {
-      throw new HttpsError("permission-denied", "هذه العملية مخصصة للمشرفين فقط.");
-    }
+    await requireAdmin(request);
     const { uid, email, newPassword } = request.data as {
       uid?: string;
       email?: string;
@@ -599,7 +580,9 @@ export const adminSetUserPassword = onCall(
 
     try {
       await db.collection("users").doc(targetUid).update({ password: admin.firestore.FieldValue.delete() });
-    } catch (_) {}
+    } catch {
+      // legacy plaintext field already removed
+    }
 
     return { success: true };
   }

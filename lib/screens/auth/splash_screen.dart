@@ -5,10 +5,10 @@ import 'package:provider/provider.dart';
 import '../../services/app_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/firestore_data_service.dart';
+import '../../services/iap_service.dart';
 import '../../utils/app_theme.dart';
 import '../student/home_screen.dart';
 import '../student/payment_screen.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
 
 // ═══════════════════════════════════════════════════
@@ -149,11 +149,9 @@ class _SplashScreenState extends State<SplashScreen>
       final ok = await FirestoreDataService.isSubscribed(firebaseUser.uid,
           rethrowErrors: true);
       if (!mounted) return;
-      // Cache result for offline fallback
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('is_subscribed_${firebaseUser.uid}', ok);
-      } catch (_) {}
+      context.read<AppProvider>().setSubscribed(ok);
+      await IapService.instance.cacheSubscriptionStatus(firebaseUser.uid, ok);
+      if (!mounted) return;
       _push(ok ? const HomeScreen() : const PaymentScreen());
     } catch (e) {
       debugPrint('Splash: $e');
@@ -166,9 +164,10 @@ class _SplashScreenState extends State<SplashScreen>
       // Network error for a logged-in user — check cached subscription status
       // to avoid sending a valid subscriber to the paywall.
       try {
-        final prefs = await SharedPreferences.getInstance();
-        final cachedSub = prefs.getBool('is_subscribed_${u.uid}') ?? false;
+        final cachedSub =
+            await IapService.instance.getCachedSubscriptionStatus(u.uid);
         if (!mounted) return;
+        context.read<AppProvider>().setSubscribed(cachedSub);
         _push(cachedSub ? const HomeScreen() : const PaymentScreen());
       } catch (_) {
         if (mounted) _push(const PaymentScreen());

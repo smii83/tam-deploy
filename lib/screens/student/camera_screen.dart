@@ -17,12 +17,14 @@ class CameraScreen extends StatefulWidget {
 
 class _CameraScreenState extends State<CameraScreen> {
   Uint8List? _imageBytes;
+  String _lastMime = 'image/jpeg';
   String? _solution;
   bool _loading = false;
   bool _isGradingMode = false;
   final _picker = ImagePicker();
 
   Future<void> _pickImage(ImageSource source) async {
+    if (_loading) return;
     try {
       final xFile = await _picker.pickImage(
         source: source,
@@ -32,12 +34,13 @@ class _CameraScreenState extends State<CameraScreen> {
       );
       if (xFile == null) return;
       final bytes = await xFile.readAsBytes();
+      final mime = xFile.mimeType ?? 'image/jpeg';
       if (!mounted) return;
       setState(() {
         _imageBytes = bytes;
+        _lastMime = mime;
         _solution = null;
       });
-      final mime = xFile.mimeType ?? 'image/jpeg';
       await _solve(bytes, mime);
     } catch (e) {
       debugPrint('CameraScreen pick error: $e');
@@ -67,12 +70,14 @@ class _CameraScreenState extends State<CameraScreen> {
             mediaType: mimeType,
             subject: subjectName,
             grade: widget.grade,
+            isAr: isAr,
           )
         : await AIService.solveFromImage(
             imageBytes: bytes,
             mediaType: mimeType,
             subject: subjectName,
             grade: widget.grade,
+            isAr: isAr,
           );
     if (!mounted) return;
     setState(() {
@@ -132,10 +137,10 @@ class _CameraScreenState extends State<CameraScreen> {
           // AI Mode Selector
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             _modeBtn(p.isAr ? 'حل سريع' : 'Quick Solve', !_isGradingMode,
-                () => setState(() => _isGradingMode = false)),
+                _loading ? null : () => _switchMode(false)),
             const SizedBox(width: 12),
             _modeBtn(p.isAr ? 'تصحيح واجب' : 'Grade', _isGradingMode,
-                () => setState(() => _isGradingMode = true)),
+                _loading ? null : () => _switchMode(true)),
           ]),
           const SizedBox(height: 16),
           // Buttons
@@ -144,14 +149,14 @@ class _CameraScreenState extends State<CameraScreen> {
                 child: ElevatedButton.icon(
               icon: const Icon(Icons.camera_alt, size: 18),
               label: Text(p.takePhoto),
-              onPressed: () => _pickImage(ImageSource.camera),
+              onPressed: _loading ? null : () => _pickImage(ImageSource.camera),
             )),
             const SizedBox(width: 10),
             Expanded(
                 child: OutlinedButton.icon(
               icon: const Icon(Icons.photo_library_outlined, size: 18),
               label: Text(p.uploadPhoto),
-              onPressed: () => _pickImage(ImageSource.gallery),
+              onPressed: _loading ? null : () => _pickImage(ImageSource.gallery),
             )),
           ]),
           const SizedBox(height: 16),
@@ -228,23 +233,35 @@ class _CameraScreenState extends State<CameraScreen> {
     );
   }
 
-  Widget _modeBtn(String label, bool active, VoidCallback onTap) {
+  Future<void> _switchMode(bool grading) async {
+    if (_loading || _isGradingMode == grading) return;
+    setState(() => _isGradingMode = grading);
+    final bytes = _imageBytes;
+    if (bytes != null) {
+      await _solve(bytes, _lastMime);
+    }
+  }
+
+  Widget _modeBtn(String label, bool active, VoidCallback? onTap) {
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: active ? AppTheme.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-          border:
-              Border.all(color: active ? AppTheme.primary : AppTheme.border),
+      child: Opacity(
+        opacity: onTap == null ? 0.55 : 1.0,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: active ? AppTheme.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+            border:
+                Border.all(color: active ? AppTheme.primary : AppTheme.border),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  color: active ? Colors.white : AppTheme.textSec,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700)),
         ),
-        child: Text(label,
-            style: TextStyle(
-                color: active ? Colors.white : AppTheme.textSec,
-                fontSize: 12,
-                fontWeight: FontWeight.w700)),
       ),
     );
   }

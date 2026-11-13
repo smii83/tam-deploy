@@ -52,12 +52,26 @@ class LessonPlayerController extends ChangeNotifier {
 
   Future<void> switchVersion(String v) async {
     if (v == _version || lesson.slides(v).isEmpty) return;
+    _askToken++;
+    _sttSession++;
+    try {
+      await _stt.cancel();
+    } catch (_) {}
+    await _stopAnswerAudio();
+    _answerMode = false;
+    answerSpeaking = false;
+    askPhase = AskPhase.idle;
+    question = '';
+    answer = '';
+    askError = '';
+    _disposePrefetch();
     _version = v;
     _prefetchIndex = -1;
     _playing = true;
     await _runSlide(0);
   }
   int get index => _index;
+  int get playNonce => _playNonce;
   LessonSlide get current => slides[_index];
   bool get playing => _playing;
   bool get finished => _finished;
@@ -81,6 +95,7 @@ class LessonPlayerController extends ChangeNotifier {
   // ── Internals ──────────────────────────────────────────────────────────────
   bool _disposed = false;
   int _gen = 0; // bumps on every slide (re)start → ignores stale async work
+  int _playNonce = 0; // bumps on every slide play → replays entrance animation on same slide
   double _slideElapsed = 0;
   bool _slideDoneHandled = false;
   DateTime? _lastTick;
@@ -181,6 +196,7 @@ class LessonPlayerController extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════════════════════
   Future<void> _runSlide(int i) async {
     final gen = ++_gen;
+    _playNonce++;
     await _stopNarration();
     if (gen != _gen || _disposed) return;
     _index = i.clamp(0, slides.length - 1);
@@ -265,10 +281,18 @@ class LessonPlayerController extends ChangeNotifier {
     return data;
   }
 
+  void _disposePrefetch() {
+    final stale = _prefetchFuture;
+    _prefetchFuture = null;
+    _prefetchIndex = -1;
+    stale?.then((c) => c.dispose()).catchError((_) {});
+  }
+
   void _prefetch(int i) {
     if (i >= slides.length || i == _prefetchIndex) return;
     final p = slides[i].audioPath;
     if (p == null) return;
+    _disposePrefetch();
     _prefetchIndex = i;
     _prefetchFuture = _createAudio(p);
     _prefetchFuture!.ignore();

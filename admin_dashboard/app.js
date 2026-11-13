@@ -710,7 +710,7 @@ async function generateLessonFor(pdfId, mode = 'full') {
 }
 
 // ── Gulf-accent narration (Gemini TTS → MP3 → Firestore) ─────────────────────
-const TTS_MODELS = ['gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts', 'gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts'];
+const TTS_MODELS = ['gemini-2.5-flash-preview-tts'];
 const ttsExhausted = new Set();
 const TTS_STYLE = "# AUDIO PROFILE: Ustaz Tam\n## THE SCENE: A calm, friendly classroom in Kuwait.\n### DIRECTOR'S NOTES\n" +
   'Style: a warm, clear and confident school teacher explaining to a student; natural and encouraging.\n' +
@@ -821,7 +821,7 @@ function pcmToMp3B64(samples, kbps) {
 }
 
 async function buildLessonAudio(pdfId, content, key, subjectId) {
-  const voice = 'Charon';
+  const voice = 'Kore';
   let subject = content.subject || '';
   const segs = lessonSegments(content);
   if (!content.polished) {

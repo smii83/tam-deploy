@@ -469,10 +469,23 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     super.dispose();
   }
 
+  String _normalizePdfUrl(String raw) {
+    final trimmed = raw.trim();
+    final driveMatch = RegExp(
+      r'https?://drive\.google\.com/file/d/([^/]+)',
+      caseSensitive: false,
+    ).firstMatch(trimmed);
+    if (driveMatch != null) {
+      return 'https://drive.google.com/uc?export=download&id=${driveMatch.group(1)}';
+    }
+    return trimmed;
+  }
+
   Future<void> _downloadAndOpen() async {
     final isAr = context.read<AppProvider>().isAr;
+    final url = _normalizePdfUrl(widget.url);
     try {
-      final cached = _pdfCache[widget.url];
+      final cached = _pdfCache[url];
       if (cached != null && await File(cached).exists()) {
         if (mounted) {
           setState(() {
@@ -483,13 +496,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         return;
       }
       final response = await http
-          .get(Uri.parse(widget.url))
+          .get(Uri.parse(url))
           .timeout(const Duration(seconds: 30));
       if (response.statusCode == 200) {
-        if (response.bodyBytes.isEmpty) {
+        final bytes = response.bodyBytes;
+        final isPdfHeader = bytes.length >= 4 &&
+            bytes[0] == 0x25 &&
+            bytes[1] == 0x50 &&
+            bytes[2] == 0x44 &&
+            bytes[3] == 0x46;
+        if (bytes.isEmpty || !isPdfHeader) {
           if (mounted) {
             setState(() {
-              _error = isAr ? 'الملف فارغ' : 'File is empty';
+              _error = isAr
+                  ? 'الملف غير صالح أو يتطلب صلاحية وصول'
+                  : 'Invalid PDF file or access restricted';
               _loading = false;
             });
           }
@@ -499,11 +520,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         final fileName =
             'tam_pdf_${DateTime.now().millisecondsSinceEpoch}.pdf';
         final file = File('${dir.path}/$fileName');
-        await file.writeAsBytes(response.bodyBytes);
-        if (_pdfCache.length >= 5 && !_pdfCache.containsKey(widget.url)) {
-          _pdfCache.remove(_pdfCache.keys.first);
+        await file.writeAsBytes(bytes);
+        if (_pdfCache.length >= 5 && !_pdfCache.containsKey(url)) {
+          final oldestKey = _pdfCache.keys.first;
+          final evictedPath = _pdfCache.remove(oldestKey);
+          if (evictedPath != null) {
+            try {
+              await File(evictedPath).delete();
+            } catch (_) {}
+          }
         }
-        _pdfCache[widget.url] = file.path;
+        _pdfCache[url] = file.path;
         if (mounted) {
           setState(() {
             _localPath = file.path;

@@ -9,7 +9,13 @@ import '../../utils/app_theme.dart';
 class QuizScreen extends StatefulWidget {
   final Map<String, String> subject;
   final int grade;
-  const QuizScreen({super.key, required this.subject, required this.grade});
+  final String subjectId;
+  const QuizScreen({
+    super.key,
+    required this.subject,
+    required this.grade,
+    this.subjectId = '',
+  });
 
   @override
   State<QuizScreen> createState() => _QuizScreenState();
@@ -21,13 +27,43 @@ class _QuizScreenState extends State<QuizScreen> {
   int? _selectedIdx;
   bool _quizLoading = false, _qAnswered = false, _quizDone = false;
 
+  String get _resolvedSubjectId =>
+      widget.subjectId.isNotEmpty ? widget.subjectId : (widget.subject['id'] ?? '');
+
+  Future<List<String>> _fetchSubjectContext() async {
+    final sid = _resolvedSubjectId;
+    if (sid.isEmpty) return [];
+    final snippets = <String>[];
+    try {
+      final lessons = await FirestoreDataService.getLessons(sid);
+      for (final l in lessons.take(6)) {
+        final title = (l['title_ar'] ?? l['name'] ?? '').toString().trim();
+        final desc = (l['description'] ?? '').toString().trim();
+        if (title.isNotEmpty) {
+          snippets.add(desc.isNotEmpty ? '$title: $desc' : title);
+        }
+      }
+      final pdfs = await FirestoreDataService.getPDFs(sid, 'summary');
+      for (final pdf in pdfs.take(6)) {
+        final title = (pdf['title_ar'] ?? pdf['name'] ?? '').toString().trim();
+        final desc = (pdf['description'] ?? '').toString().trim();
+        if (title.isNotEmpty) {
+          snippets.add(desc.isNotEmpty ? '$title: $desc' : title);
+        }
+      }
+    } catch (_) {}
+    return snippets;
+  }
+
   Future<void> _loadQuiz() async {
     final isAr = context.read<AppProvider>().isAr;
     setState(() => _quizLoading = true);
+    final contextSnippets = await _fetchSubjectContext();
     final qs = await AIService.generateQuiz(
       subject: isAr ? widget.subject['ar']! : widget.subject['en']!,
       grade: widget.grade,
-      pdfTexts: [],
+      pdfTexts: contextSnippets,
+      isAr: isAr,
     );
     if (!mounted) return;
     if (qs.isEmpty || qs.first['isFallbackError'] == true) {
@@ -84,7 +120,9 @@ class _QuizScreenState extends State<QuizScreen> {
           await FirestoreDataService.saveQuizResult(
             firebaseUid: uid,
             // 🔒 Fix: Use Firestore document ID, not a generated string from subject name
-            subjectId: widget.subject['id'] ?? widget.subject['en']!.toLowerCase().replaceAll(' ', '_'),
+            subjectId: _resolvedSubjectId.isNotEmpty
+                ? _resolvedSubjectId
+                : widget.subject['en']!.toLowerCase().replaceAll(' ', '_'),
             subjectName: widget.subject['ar'] ?? widget.subject['en'] ?? '',
             grade: widget.grade,
             score: _score,

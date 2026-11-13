@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'services/auth_service.dart';
 import 'services/app_provider.dart';
+import 'services/iap_service.dart';
 import 'screens/auth/splash_screen.dart';
 import 'utils/app_theme.dart';
 import 'firebase_options.dart';
@@ -37,8 +38,28 @@ Future<void> main() async {
   );
 }
 
-class TamApp extends StatelessWidget {
+class TamApp extends StatefulWidget {
   const TamApp({super.key});
+
+  @override
+  State<TamApp> createState() => _TamAppState();
+}
+
+class _TamAppState extends State<TamApp> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      IapService.instance.ensureListening(
+        onSubscriptionActivated: () {
+          if (mounted) {
+            context.read<AppProvider>().setSubscribed(true);
+          }
+        },
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.watch<AppProvider>();

@@ -1,14 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/app_provider.dart';
 import '../../services/auth_service.dart';
-import '../../services/firestore_data_service.dart';
+import '../../services/iap_service.dart';
 import '../../utils/app_theme.dart';
 import '../../utils/app_urls.dart';
 import '../../widgets/animated_pressable.dart';
@@ -24,38 +21,32 @@ class PaymentScreen extends StatefulWidget {
 
 class _PaymentScreenState extends State<PaymentScreen>
     with SingleTickerProviderStateMixin {
-  static const String _productId = 'tam_6months_12kwd';
+  static const String _productId = IapService.productId;
   bool _available = false, _loading = true, _purchasing = false;
   bool _successShown = false;
   List<ProductDetails> _products = [];
   // Last reason the store returned no product (shown to help diagnose
   // App Store Connect / Play Console configuration problems).
   String _iapIssue = '';
-  StreamSubscription<List<PurchaseDetails>>? _purchaseSub;
+  StreamSubscription<IapPurchaseEvent>? _purchaseSub;
 
   late AnimationController _pulseCtrl;
   late Animation<double> _pulseAnim;
 
-  bool get _isStoreSupported =>
-      !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android ||
-          defaultTargetPlatform == TargetPlatform.iOS);
+  bool get _isStoreSupported => IapService.instance.isStoreSupported;
 
   @override
   void initState() {
     super.initState();
     if (_isStoreSupported) {
-      try {
-        _purchaseSub = InAppPurchase.instance.purchaseStream.listen(
-          _onPurchase,
-          onDone: () => _purchaseSub?.cancel(),
-          onError: (error) {
-            debugPrint('IAP purchaseStream error: $error');
-          },
-        );
-      } catch (e) {
-        debugPrint('IAP purchaseStream setup error: $e');
-      }
+      IapService.instance.ensureListening(
+        onSubscriptionActivated: () {
+          if (mounted) {
+            context.read<AppProvider>().setSubscribed(true);
+          }
+        },
+      );
+      _purchaseSub = IapService.instance.events.listen(_onIapEvent);
       _initIAP();
     } else {
       _loading = false;
@@ -114,131 +105,39 @@ class _PaymentScreenState extends State<PaymentScreen>
     }
   }
 
-  Future<void> _onPurchase(List<PurchaseDetails> purchases) async {
-    for (final p in purchases) {
-      try {
-        await _handlePurchase(p);
-      } catch (e, st) {
-        // Never let a store event crash the app.
-        debugPrint('IAP: failed handling purchase ${p.productID}: $e\n$st');
-        if (mounted) setState(() => _purchasing = false);
-      }
-    }
-  }
-
-  Future<void> _handlePurchase(PurchaseDetails p) async {
-    switch (p.status) {
-      case PurchaseStatus.pending:
+  void _onIapEvent(IapPurchaseEvent event) {
+    if (!mounted) return;
+    final p = context.read<AppProvider>();
+    switch (event.status) {
+      case IapEventStatus.pending:
         break; // waiting for the store (e.g. Ask to Buy) — keep spinner
 
-      case PurchaseStatus.purchased:
-      case PurchaseStatus.restored:
-        final ok = await _activate(p);
-        // Only finish the transaction once activation succeeded. If it
-        // failed we leave it open so the store re-delivers it on the next
-        // launch instead of silently losing a paid purchase.
-        if (ok && p.pendingCompletePurchase) {
-          await InAppPurchase.instance.completePurchase(p);
-        }
-        if (!mounted) return;
+      case IapEventStatus.activated:
+        p.setSubscribed(true);
         setState(() => _purchasing = false);
-        if (ok) _showSuccess();
+        _showSuccess();
         break;
 
-      case PurchaseStatus.error:
-        if (p.pendingCompletePurchase) {
-          await InAppPurchase.instance.completePurchase(p);
-        }
-        if (!mounted) return;
-        final isAr = context.read<AppProvider>().isAr;
+      case IapEventStatus.activationFailed:
         setState(() => _purchasing = false);
-        _snack(p.error?.message.isNotEmpty == true
-            ? p.error!.message
-            : (isAr
+        _snack(p.isAr
+            ? 'تم الدفع لكن تعذّر تفعيل الاشتراك الآن. لا تدفع مرة أخرى — أعد فتح التطبيق أو اضغط "استعادة المشتريات".'
+            : 'Payment received, but activation could not complete right now. Do not pay again — reopen the app or tap "Restore Purchases".');
+        break;
+
+      case IapEventStatus.error:
+        setState(() => _purchasing = false);
+        _snack(event.errorMessage?.isNotEmpty == true
+            ? event.errorMessage!
+            : (p.isAr
                 ? 'تعذّرت عملية الدفع. يرجى المحاولة مرة أخرى.'
                 : 'Payment failed. Please try again.'));
         break;
 
-      case PurchaseStatus.canceled:
-        if (p.pendingCompletePurchase) {
-          await InAppPurchase.instance.completePurchase(p);
-        }
-        if (!mounted) return;
-        setState(() => _purchasing = false); // user closed the payment sheet
+      case IapEventStatus.canceled:
+        setState(() => _purchasing = false);
         break;
     }
-  }
-
-  /// Activates the subscription after a store purchase. Returns true only when
-  /// the user ended up with an active subscription.
-  ///
-  /// 1. Tries the `activateSubscription` Cloud Function (server-side).
-  /// 2. If the function is unavailable (not deployed, no network to it, …)
-  ///    falls back to writing the subscription record directly to Firestore
-  ///    (allowed by firestore.rules for the user's own validated record).
-  Future<bool> _activate(PurchaseDetails p) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return false;
-
-    final txId = p.purchaseID?.trim() ?? '';
-    final receipt = p.verificationData.serverVerificationData;
-    final productId = p.productID.isNotEmpty ? p.productID : _productId;
-    final platform =
-        defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
-    final txDateMs = int.tryParse(p.transactionDate ?? '');
-    // Some store events (e.g. restored) can lack a purchaseID — derive a
-    // stable fallback so the same purchase can't be activated twice.
-    final effectiveTxId = txId.isNotEmpty
-        ? txId
-        : (p.transactionDate != null
-            ? 'tx_${user.uid}_${p.transactionDate}'
-            : '');
-
-    // ── 1) Cloud Function ───────────────────────────────────────────────
-    if (effectiveTxId.isNotEmpty) {
-      try {
-        final functions = FirebaseFunctions.instanceFor(region: 'me-central1');
-        await functions
-            .httpsCallable('activateSubscription')
-            .call({
-              'productId': productId,
-              'platform': platform,
-              'transactionId': effectiveTxId,
-              'receiptData': receipt,
-              'userEmail': user.email ?? '',
-              if (txDateMs != null) 'transactionDateMs': txDateMs,
-            })
-            .timeout(const Duration(seconds: 12));
-        return true;
-      } on FirebaseFunctionsException catch (fnEx) {
-        debugPrint(
-            'activateSubscription CF error: ${fnEx.code} — ${fnEx.message}');
-      } catch (e) {
-        debugPrint('activateSubscription CF exception: $e');
-      }
-    }
-
-    // ── 2) Direct Firestore fallback ────────────────────────────────────
-    try {
-      final ok = await FirestoreDataService.activateSubscription(
-        firebaseUid: user.uid,
-        userEmail: user.email ?? '',
-        plan: productId,
-        transactionId: effectiveTxId,
-        platform: platform,
-      );
-      if (ok) return true;
-    } catch (e) {
-      debugPrint('activateSubscription fallback exception: $e');
-    }
-
-    if (mounted) {
-      final isAr = context.read<AppProvider>().isAr;
-      _snack(isAr
-          ? 'تم الدفع لكن تعذّر تفعيل الاشتراك الآن. لا تدفع مرة أخرى — أعد فتح التطبيق أو اضغط "استعادة المشتريات".'
-          : 'Payment received, but activation could not complete right now. Do not pay again — reopen the app or tap "Restore Purchases".');
-    }
-    return false;
   }
 
   Future<void> _purchase() async {
@@ -399,7 +298,7 @@ class _PaymentScreenState extends State<PaymentScreen>
     final isDark = p.isDark;
     final priceText = _products.isNotEmpty
         ? _products.first.price
-        : (p.isAr ? '\$49 (12 د.ك)' : '\$49 (12 KWD)');
+        : (p.isAr ? '12 د.ك / 6 أشهر' : '12 KWD / 6 Months');
 
     return Scaffold(
       backgroundColor:
@@ -755,6 +654,57 @@ class _PaymentScreenState extends State<PaymentScreen>
                       ),
 
                       const SizedBox(height: 16),
+
+                      if (!_loading && _products.isEmpty && _isStoreSupported) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withValues(alpha: isDark ? 0.14 : 0.10),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.amber.withValues(alpha: 0.45),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.info_outline_rounded,
+                                color: Colors.amber,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  p.isAr
+                                      ? 'تعذّر تحميل تفاصيل الاشتراك من المتجر حالياً. تأكد من اتصالك بالإنترنت ثم أعد المحاولة.'
+                                      : 'Could not load subscription details from the store right now. Please check your connection and retry.',
+                                  style: TextStyle(
+                                    fontFamily: 'Cairo',
+                                    fontSize: 11.5,
+                                    color: isDark ? Colors.white : AppTheme.textPri,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              TextButton(
+                                onPressed: () {
+                                  setState(() => _loading = true);
+                                  _initIAP();
+                                },
+                                child: Text(
+                                  p.retry,
+                                  style: const TextStyle(
+                                    fontFamily: 'Cairo',
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
 
                       // ── Security badge ──────────────────────────────────
                       Container(

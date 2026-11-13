@@ -65,13 +65,13 @@ class _AnimatedPressableState extends State<AnimatedPressable>
   void _onTapDown(TapDownDetails details) {
     if (widget.onTap != null) {
       _controller.forward();
-      if (widget.enableHaptic) HapticFeedback.lightImpact();
     }
   }
 
   void _onTapUp(TapUpDetails details) {
     if (widget.onTap != null) {
       _controller.reverse();
+      if (widget.enableHaptic) HapticFeedback.lightImpact();
       widget.onTap!();
     }
   }

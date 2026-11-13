@@ -9,6 +9,7 @@ import '../../widgets/animated_pressable.dart';
 import '../../widgets/tam_logo_widget.dart';
 import 'register_screen.dart';
 import '../../services/firestore_data_service.dart';
+import '../../services/iap_service.dart';
 
 import '../student/home_screen.dart';
 import '../student/payment_screen.dart';
@@ -149,9 +150,11 @@ class _LoginScreenState extends State<LoginScreen>
       _loading = true;
       _error = null;
     });
-    final err = await context
-        .read<AuthService>()
-        .login(email: _emailCtrl.text, password: _passCtrl.text);
+    final err = await context.read<AuthService>().login(
+          email: _emailCtrl.text,
+          password: _passCtrl.text,
+          lang: context.read<AppProvider>().language,
+        );
     if (!mounted) return;
     setState(() => _loading = false);
     if (err != null) {
@@ -173,6 +176,8 @@ class _LoginScreenState extends State<LoginScreen>
     final err = await auth.signInWithApple(
       grade: existingGrade > 0 ? existingGrade : 0,
       section: existingSection,
+      country: p.selectedCountry,
+      lang: p.language,
     );
     if (!mounted) return;
     if (err != null) {
@@ -193,6 +198,11 @@ class _LoginScreenState extends State<LoginScreen>
       setState(() => _loading = false);
       final gradeInfo = await _pickGradeIfNeeded();
       if (!mounted) return;
+      if (gradeInfo == null) {
+        await auth.logout();
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
       setState(() => _loading = true);
       if (data == null && auth.currentUser != null) {
         await FirestoreDataService.upsertUser(
@@ -224,6 +234,8 @@ class _LoginScreenState extends State<LoginScreen>
     final err = await auth.signInWithGoogle(
       grade: existingGrade > 0 ? existingGrade : 0,
       section: existingSection,
+      country: p.selectedCountry,
+      lang: p.language,
     );
     if (!mounted) return;
     if (err != null) {
@@ -244,6 +256,11 @@ class _LoginScreenState extends State<LoginScreen>
       setState(() => _loading = false);
       final gradeInfo = await _pickGradeIfNeeded();
       if (!mounted) return;
+      if (gradeInfo == null) {
+        await auth.logout();
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
       setState(() => _loading = true);
       if (data == null && auth.currentUser != null) {
         await FirestoreDataService.upsertUser(
@@ -263,9 +280,9 @@ class _LoginScreenState extends State<LoginScreen>
     _toHome();
   }
 
-  /// Shows a cancelable dialog to pick grade for new social sign-in users.
-  /// Defaults gracefully to grade 12 if dismissed.
-  Future<(int, String)> _pickGradeIfNeeded() async {
+  /// Shows a dialog to pick grade for new social sign-in users.
+  /// Returns null if the user explicitly cancels.
+  Future<(int, String)?> _pickGradeIfNeeded() async {
     final p = context.read<AppProvider>();
     final country = p.selectedCountry;
     final gradesList = FirestoreDataService.getStaticGradesForCountry(country)
@@ -279,9 +296,9 @@ class _LoginScreenState extends State<LoginScreen>
         ? (gradesList.first['section'] as String? ?? '')
         : 'scientific';
 
-    await showDialog(
+    return showDialog<(int, String)?>(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -332,12 +349,15 @@ class _LoginScreenState extends State<LoginScreen>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx),
+              onPressed: () => Navigator.pop(ctx, null),
               child: Text(p.cancel,
                   style: const TextStyle(fontFamily: 'Cairo', color: AppTheme.textSec)),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.pop(ctx),
+              onPressed: () => Navigator.pop(
+                ctx,
+                (selectedGrade > 0 ? selectedGrade : 12, selectedSection),
+              ),
               style: ElevatedButton.styleFrom(
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
@@ -348,7 +368,6 @@ class _LoginScreenState extends State<LoginScreen>
         ),
       ),
     );
-    return (selectedGrade > 0 ? selectedGrade : 12, selectedSection);
   }
 
   void _toHome() async {
@@ -364,13 +383,18 @@ class _LoginScreenState extends State<LoginScreen>
           : 'This account has been blocked by the administrator.');
       return;
     }
-    p.userData = data;
+    await p.loadUserData();
+    if (!mounted) return;
 
     // 🔒 Paywall: only subscribed users may enter the app. Everyone else
     // (new Apple/Google sign-ins, expired subscriptions) goes to payment.
     final uid = auth.currentUser?.uid;
     final subscribed =
         uid != null && await FirestoreDataService.isSubscribed(uid);
+    if (uid != null) {
+      p.setSubscribed(subscribed);
+      await IapService.instance.cacheSubscriptionStatus(uid, subscribed);
+    }
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
